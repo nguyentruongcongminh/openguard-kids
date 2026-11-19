@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenGuard Kids — Bảng điều khiển phụ huynh</title>
+<style>
+  :root{
+    --bg:#f2f5f7; --card:#ffffff; --ink:#22303a; --muted:#66788a;
+    --primary:#2e6f79; --primary-dark:#245a62; --ok:#2e7d5b;
+    --danger:#b3261e; --danger-bg:#fdecea; --line:#dde5ea;
+    --warn-bg:#fff7e6; --warn-line:#e8c87a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  header.top{background:var(--primary);color:#fff;padding:12px 16px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+  header.top h1{font-size:18px;margin:0;font-weight:600}
+  header.top .who{font-size:13px;opacity:.92}
+  main{max-width:1060px;margin:0 auto;padding:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  .card h2{margin:0 0 6px;font-size:17px}
+  .card h3{margin:14px 0 6px;font-size:15px}
+  .hint{color:var(--muted);font-size:13px;margin:4px 0 10px}
+  label{display:block;font-size:13px;margin:8px 0 3px;color:var(--ink)}
+  input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],select,textarea{
+    width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font-size:14px;background:#fff;color:var(--ink)}
+  textarea{resize:vertical}
+  .row{display:flex;gap:10px;flex-wrap:wrap}
+  .row>div{flex:1 1 150px}
+  button{background:var(--primary);color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:14px;cursor:pointer}
+  button:hover{background:var(--primary-dark)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button.secondary{background:#e7edf0;color:var(--ink)}
+  button.secondary:hover{background:#d9e2e7}
+  button.danger{background:var(--danger);color:#fff}
+  button.danger:hover{background:#8f1d17}
+  button.small{padding:5px 10px;font-size:13px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px}
+  th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+  th{color:var(--muted);font-weight:600}
+  .tblwrap{overflow-x:auto}
+  .child-card{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:12px}
+  .child-card h3{margin:0 0 4px}
+  .device-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:8px}
+  .device-row.selected{border-color:var(--primary);background:#eef6f7}
+  .device-row .grow{flex:1 1 auto}
+  .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;background:#e7edf0;color:var(--ink)}
+  .badge.revoked{background:var(--danger-bg);color:var(--danger)}
+  .badge.active{background:#e2f2e8;color:var(--ok)}
+  .pairbox{margin-top:10px;background:var(--warn-bg);border:1px dashed var(--warn-line);border-radius:8px;padding:12px;text-align:center;display:none}
+  .pairbox .code{font-size:34px;font-weight:700;letter-spacing:6px;font-family:Consolas,monospace}
+  .sched-wrap{overflow-x:auto;padding-bottom:4px}
+  .sched{display:grid;grid-template-columns:58px repeat(48,minmax(9px,1fr));gap:1px;user-select:none;-webkit-user-select:none;touch-action:none;min-width:660px}
+  .sched .hlab{font-size:9px;color:var(--muted);text-align:center;overflow:hidden}
+  .sched .rlab{font-size:11.5px;display:flex;align-items:center;white-space:nowrap}
+  .sched .cell{height:15px;background:#e3e9ed;border-radius:2px;cursor:pointer}
+  .sched .cell.on{background:var(--ok)}
+  .chart{display:flex;align-items:flex-end;gap:8px;height:150px;border-bottom:1px solid var(--line);padding-top:10px}
+  .chart .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+  .chart .bar{width:70%;background:var(--primary);border-radius:4px 4px 0 0;min-height:2px}
+  .chart .bar-val{font-size:11.5px;margin-bottom:3px}
+  .chart .bar-lab{font-size:11px;color:var(--muted);margin-top:5px}
+  .cmd-grid{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+  .req-item{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:10px}
+  .req-item .meta{color:var(--muted);font-size:12.5px}
+  #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:22px;max-width:92vw;background:#26343e;color:#fff;
+    padding:11px 16px;border-radius:8px;font-size:14px;display:none;z-index:99;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+  #toast.err{background:var(--danger)}
+  .seldev{font-weight:600;color:var(--primary-dark)}
+  footer{max-width:1060px;margin:0 auto;padding:6px 14px 30px;color:var(--muted);font-size:13.5px}
+  .danger-zone{border:1px solid var(--danger);background:var(--danger-bg);border-radius:10px;padding:14px 16px;margin-top:14px;color:var(--ink)}
+  .mono{font-family:Consolas,monospace;font-size:12.5px;word-break:break-all}
+  .hidden{display:none !important}
+  @media (max-width:640px){
+    main{padding:10px}
+    .card{padding:12px}
+    header.top h1{font-size:16px}
+    .pairbox .code{font-size:26px;letter-spacing:4px}
+    th,td{padding:5px 5px;font-size:12.5px}
+  }
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<!-- ============ ĐĂNG NHẬP ============ -->
+<div id="loginView">
+  <main>
+    <div class="card" style="max-width:420px;margin:40px auto">
+      <h2>OpenGuard Kids</h2>
+      <p class="hint">Đăng nhập dành cho phụ huynh.</p>
+      <form id="loginForm">
+        <label for="liEmail">Email</label>
+        <input type="email" id="liEmail" required autocomplete="username">
+        <label for="liPass">Mật khẩu</label>
+        <input type="password" id="liPass" required autocomplete="current-password">
+        <label for="liTotp">Mã TOTP (chỉ khi đã bật xác thực hai lớp)</label>
+        <input type="text" id="liTotp" inputmode="numeric" autocomplete="one-time-code" placeholder="Có thể để trống">
+        <div style="margin-top:14px"><button type="submit" style="width:100%">Đăng nhập</button></div>
+      </form>
+    </div>
+  </main>
+</div>
+
+<!-- ============ ỨNG DỤNG ============ -->
+<div id="appView" class="hidden">
+  <header class="top">
+    <h1>OpenGuard Kids — Bảng điều khiển phụ huynh</h1>
+    <div>
+      <span class="who" id="whoami"></span>
+      <button class="secondary small" id="btnLogout" type="button">Đăng xuất</button>
+    </div>
+  </header>
+  <main>
+
+    <!-- 1. TRẺ & THIẾT BỊ -->
+    <section class="card" id="secChildren">
+      <h2>1. Trẻ &amp; thiết bị</h2>
+      <p class="hint">Tạo mã ghép đôi tại đây rồi nhập mã vào agent trên máy của trẻ. Mã gồm 8 ký tự và chỉ có hiệu lực trong 10 phút.</p>
+      <p class="hint" id="certFpLine" hidden>SHA-256 chứng chỉ server — khi ghép đôi, nhập giá trị này vào agent (tham số <span class="mono">--cert-fingerprint</span>): <span class="mono" id="certFp"></span></p>
+      <div id="childrenList"></div>
+      <h3>Thêm trẻ</h3>
+      <form id="addChildForm">
+        <div class="row">
+          <div>
+            <label for="acName">Tên trẻ</label>
+            <input type="text" id="acName" required>
+          </div>
+          <div>
+            <label for="acDob">Ngày sinh (có thể để trống)</label>
+            <input type="date" id="acDob">
+          </div>
+          <div style="flex:0 1 140px;display:flex;align-items:flex-end">
+            <button type="submit" style="width:100%">Thêm trẻ</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- 2. CHÍNH SÁCH -->
+    <section class="card" id="secPolicy">
+      <h2>2. Chính sách <span class="seldev" id="polDeviceLabel"></span></h2>
+      <p class="hint" id="polVersion"></p>
+      <div id="policyBody" class="hidden">
+        <h3>Thời gian sử dụng</h3>
+        <div class="row">
+          <div>
+            <label for="tpQuotaWd">Hạn mức ngày thường (phút/ngày)</label>
+            <input type="number" id="tpQuotaWd" min="0" step="5">
+          </div>
+          <div>
+            <label for="tpQuotaWe">Hạn mức cuối tuần (phút/ngày)</label>
+            <input type="number" id="tpQuotaWe" min="0" step="5">
+          </div>
+          <div>
+            <label for="tpGrace">Ân hạn trước khi khóa (giây)</label>
+            <input type="number" id="tpGrace" min="0" step="10">
+          </div>
+          <div>
+            <label for="tpWarn">Cảnh báo trước khi hết giờ (phút, cách nhau bởi dấu phẩy)</label>
+            <input type="text" id="tpWarn" placeholder="10,5,1">
+          </div>
+        </div>
+        <h3>Ngân sách theo nhóm ứng dụng (phút/ngày — để trống = không giới hạn)</h3>
+        <div class="row">
+          <div><label for="gbHocTap">Học tập</label><input type="number" id="gbHocTap" min="0" step="5" placeholder="Không giới hạn"></div>
+          <div><label for="gbGiaiTri">Giải trí</label><input type="number" id="gbGiaiTri" min="0" step="5" placeholder="Không giới hạn"></div>
+          <div><label for="gbGame">Trò chơi</label><input type="number" id="gbGame" min="0" step="5" placeholder="Không giới hạn"></div>
+          <div><label for="gbKhac">Khác</label><input type="number" id="gbKhac" min="0" step="5" placeholder="Không giới hạn"></div>
+        </div>
+
+        <h3>Lịch sử dụng theo tuần</h3>
+        <p class="hint">Mỗi ô = 30 phút. Ô xanh = được phép dùng máy, ô xám = khóa. Nhấn để bật/tắt một ô, kéo chuột (hoặc kéo ngón tay) để tô nhiều ô.</p>
+        <div class="sched-wrap"><div class="sched" id="schedGrid"></div></div>
+        <div class="row" style="margin-top:10px">
+          <div style="flex:0 1 150px"><button type="button" class="secondary" id="btnSchedAll" style="width:100%">Chọn tất cả</button></div>
+          <div style="flex:0 1 150px"><button type="button" class="secondary" id="btnSchedNone" style="width:100%">Xóa tất cả</button></div>
+          <div style="flex:1 1 220px"><button type="button" id="btnSaveTime" style="width:100%">Lưu thời gian &amp; lịch</button></div>
+        </div>
+
+        <h3>Quy tắc ứng dụng</h3>
+        <div class="tblwrap">
+          <table>
+            <thead><tr><th>Ứng dụng</th><th>SHA-256</th><th>Hành động</th><th>Nhóm</th><th>Khung giờ</th><th>Hạn mức (phút/ngày)</th><th></th></tr></thead>
+            <tbody id="appsBody"></tbody>
+          </table>
+        </div>
+        <form id="addAppForm">
+          <div class="row">
+            <div><label for="aaName">Tên tiến trình (vd: chrome.exe)</label><input type="text" id="aaName" required></div>
+            <div><label for="aaSha">SHA-256 (không bắt buộc)</label><input type="text" id="aaSha" placeholder="Để trống nếu không biết"></div>
+            <div>
+              <label for="aaAction">Hành động</label>
+              <select id="aaAction"><option value="block">Chặn</option><option value="allow">Cho phép</option></select>
+            </div>
+            <div>
+              <label for="aaCat">Nhóm</label>
+              <select id="aaCat">
+                <option value="hoc_tap">Học tập</option>
+                <option value="giai_tri">Giải trí</option>
+                <option value="game">Trò chơi</option>
+                <option value="khac">Khác</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div><label for="aaFrom">Được dùng từ (để trống = cả ngày)</label><input type="text" id="aaFrom" placeholder="07:00"></div>
+            <div><label for="aaTo">Đến</label><input type="text" id="aaTo" placeholder="20:00"></div>
+            <div><label for="aaCap">Hạn mức (phút/ngày, để trống = không đặt)</label><input type="number" id="aaCap" min="0" step="5"></div>
+            <div style="flex:0 1 150px;display:flex;align-items:flex-end"><button type="submit" style="width:100%">Thêm quy tắc</button></div>
+          </div>
+        </form>
+
+        <h3>Lọc web</h3>
+        <p class="hint">Số tên miền đang bị chặn hiệu lực (theo nhóm + quy tắc riêng): <strong id="blockedCount">–</strong></p>
+        <div class="row" id="catPolicyRow"></div>
+        <label style="margin-top:10px">
+          <input type="checkbox" id="wsSafesearch" style="width:auto"> Bật SafeSearch bắt buộc (Google, Bing, YouTube…)
+        </label>
+        <label for="wsNeverBlock">Miền không bao giờ chặn (mỗi dòng một tên miền)</label>
+        <textarea id="wsNeverBlock" rows="3" placeholder="moet.gov.vn&#10;school.example.edu.vn"></textarea>
+        <p class="hint">Lưu ý: các miền <strong>.gov.vn</strong> luôn được miễn chặn, kể cả khi không liệt kê tại đây.</p>
+        <div><button type="button" id="btnSaveWebSettings">Lưu cài đặt lọc web</button></div>
+
+        <h3>Quy tắc miền riêng</h3>
+        <div class="tblwrap">
+          <table>
+            <thead><tr><th>Tên miền</th><th>Hành động</th><th>Đặt lúc</th><th></th></tr></thead>
+            <tbody id="webRulesBody"></tbody>
+          </table>
+        </div>
+        <form id="addWebForm">
+          <div class="row">
+            <div><label for="awDomain">Tên miền (vd: facebook.com)</label><input type="text" id="awDomain" required></div>
+            <div>
+              <label for="awAction">Hành động</label>
+              <select id="awAction"><option value="block">Chặn</option><option value="allow">Cho phép</option></select>
+            </div>
+            <div style="flex:0 1 150px;display:flex;align-items:flex-end"><button type="submit" style="width:100%">Thêm quy tắc</button></div>
+          </div>
+        </form>
+      </div>
+      <p class="hint" id="policyEmpty">Hãy chọn một thiết bị ở mục 1 để xem và sửa chính sách.</p>
+    </section>
+
+    <!-- 3. ĐIỀU KHIỂN TỪ XA -->
+    <section class="card" id="secCommands">
+      <h2>3. Điều khiển từ xa <span class="seldev" id="cmdDeviceLabel"></span></h2>
+      <p class="hint">Mọi lệnh đều được hiển thị công khai trên máy của trẻ kèm lý do — trẻ luôn biết máy đang được điều khiển.</p>
+      <div class="cmd-grid">
+        <button type="button" id="cmdLock">Khóa máy ngay</button>
+        <button type="button" id="cmdUnlock" class="secondary">Mở khóa</button>
+        <button type="button" id="cmdPlus15">Cộng 15 phút</button>
+        <button type="button" id="cmdBreak" class="secondary">Cho nghỉ 15 phút</button>
+        <button type="button" id="cmdPause" class="secondary">Tạm dừng hôm nay</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label for="cmdExtraMin">Cộng giờ tùy chọn (phút)</label>
+          <input type="number" id="cmdExtraMin" min="1" step="5" value="30">
+        </div>
+        <div style="flex:0 1 170px;display:flex;align-items:flex-end">
+          <button type="button" id="cmdExtra" style="width:100%">Cộng giờ</button>
+        </div>
+      </div>
+      <p class="hint" id="cmdStatus"></p>
+    </section>
+
+    <!-- 4. YÊU CẦU CỦA TRẺ -->
+    <section class="card" id="secRequests">
+      <h2>4. Yêu cầu của trẻ</h2>
+      <p class="hint">Các yêu cầu đang chờ duyệt. <button type="button" class="secondary small" id="btnRefreshReq">Làm mới</button></p>
+      <div id="requestsList"></div>
+    </section>
+
+    <!-- 5. BÁO CÁO -->
+    <section class="card" id="secReports">
+      <h2>5. Báo cáo <span class="seldev" id="repDeviceLabel"></span></h2>
+      <div id="reportBody" class="hidden">
+        <h3>7 ngày gần nhất (tổng phút dùng ứng dụng mỗi ngày)</h3>
+        <div class="chart" id="weekChart"></div>
+        <h3>Chi tiết theo ngày</h3>
+        <div class="row">
+          <div style="flex:0 1 220px">
+            <label for="repDate">Chọn ngày</label>
+            <input type="date" id="repDate">
+          </div>
+        </div>
+        <div id="reportDetail"></div>
+        <div class="row">
+          <div>
+            <h3>Top 10 ứng dụng</h3>
+            <table><thead><tr><th>Ứng dụng</th><th>Phút</th></tr></thead><tbody id="topAppsBody"></tbody></table>
+          </div>
+          <div>
+            <h3>Top 10 tên miền</h3>
+            <table><thead><tr><th>Tên miền</th><th>Lượt truy vấn</th></tr></thead><tbody id="topDomainsBody"></tbody></table>
+          </div>
+        </div>
+      </div>
+      <p class="hint" id="reportEmpty">Hãy chọn một thiết bị ở mục 1 để xem báo cáo.</p>
+    </section>
+
+    <!-- 6. NHẬT KÝ KIỂM TOÁN -->
+    <section class="card" id="secAudit">
+      <h2>6. Nhật ký kiểm toán</h2>
+      <p class="hint">Mọi thay đổi chính sách và thao tác quản trị đều được ghi lại. Trẻ cũng xem được nhật ký này trên máy của mình. <button type="button" class="secondary small" id="btnRefreshAudit">Làm mới</button></p>
+      <div class="tblwrap">
+        <table>
+          <thead><tr><th>Thời gian</th><th>Người thực hiện</th><th>Hành động</th><th>IP</th><th>Trước</th><th>Sau</th></tr></thead>
+          <tbody id="auditBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 7. PHÂN LOẠI MIỀN -->
+    <section class="card" id="secDomains">
+      <h2>7. Phân loại miền</h2>
+      <p class="hint">Tra cứu bảng phân loại tên miền dùng cho lọc web. Kết quả hiển thị tối đa 200 miền mỗi lần tra cứu.</p>
+      <div class="row">
+        <div><label for="domQ">Tìm theo tên miền</label><input type="text" id="domQ" placeholder="vd: youtube"></div>
+        <div>
+          <label for="domCat">Nhóm</label>
+          <select id="domCat">
+            <option value="">Tất cả các nhóm</option>
+            <option value="giao_duc">Giáo dục</option>
+            <option value="giai_tri">Giải trí</option>
+            <option value="mang_xa_hoi">Mạng xã hội</option>
+            <option value="tro_choi">Trò chơi</option>
+            <option value="khong_phu_hop">Không phù hợp lứa tuổi</option>
+            <option value="chua_phan_loai">Chưa phân loại</option>
+          </select>
+        </div>
+        <div style="flex:0 1 130px;display:flex;align-items:flex-end"><button type="button" id="btnDomSearch" style="width:100%">Tra cứu</button></div>
+      </div>
+      <div class="tblwrap">
+        <table>
+          <thead><tr><th>Tên miền</th><th>Nhóm</th><th>Ghi chú</th></tr></thead>
+          <tbody id="domainsBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>OpenGuard Kids — công cụ đồng hành minh bạch với trẻ, không giám sát lén.</p>
+    <div class="danger-zone">
+      <strong>Vùng nguy hiểm</strong>
+      <p>Xóa toàn bộ dữ liệu của trẻ đang chọn (sự kiện sử dụng, yêu cầu…) trên máy chủ và thông báo tới các thiết bị của trẻ. Hành động này không thể hoàn tác.</p>
+      <button type="button" class="danger" id="btnDeleteChildData" disabled>Xóa toàn bộ dữ liệu của con tôi</button>
+    </div>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ================= Trạng thái ================= */
+let csrf = null;              // chỉ giữ trong bộ nhớ trang, không lưu trữ lâu dài
+let meInfo = null;
+let childrenData = [];
+let selDeviceId = null;
+let selChildId = null;
+let selDeviceName = "";
+let policyDoc = null;
+let schedule = null;          // 7 x 48 số 0/1, hàng 0 = Thứ 2
+
+const CAT_LABELS = {
+  giao_duc: "Giáo dục", giai_tri: "Giải trí", mang_xa_hoi: "Mạng xã hội",
+  tro_choi: "Trò chơi", khong_phu_hop: "Không phù hợp lứa tuổi", chua_phan_loai: "Chưa phân loại"
+};
+const APP_CAT_LABELS = { hoc_tap: "Học tập", giai_tri: "Giải trí", game: "Trò chơi", khac: "Khác" };
+const DAY_LABELS = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"];
+const CMD_LABELS = { lock_now: "Khóa máy ngay", unlock: "Mở khóa", grant_extra: "Cộng giờ", break_15: "Cho nghỉ 15 phút", pause_today: "Tạm dừng hôm nay" };
+
+const $ = (id) => document.getElementById(id);
+function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function fmtTs(ts){
+  if(!ts) return "Chưa từng kết nối";
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? esc(ts) : d.toLocaleString("vi-VN");
+}
+function fmtDate(dstr){
+  if(!dstr) return "";
+  const p = String(dstr).slice(0,10).split("-");
+  return p.length === 3 ? p[2] + "/" + p[1] : esc(dstr);
+}
+
+let toastTimer = null;
+function toast(msg, isErr){
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = isErr ? "err" : "";
+  t.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.style.display = "none"; }, 4200);
+}
+
+/* ================= API ================= */
+async function api(method, url, body){
+  const opts = { method: method, headers: {} };
+  if(body !== undefined){
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  if(method !== "GET" && csrf){ opts.headers["X-CSRF-Token"] = csrf; }
+  const r = await fetch(url, opts);
+  if(!r.ok){
+    let detail = "Lỗi " + r.status;
+    try { const j = await r.json(); if(j && j.detail) detail = j.detail; } catch(e){ /* giữ nguyên thông báo mặc định */ }
+    throw new Error(detail);
+  }
+  if(r.status === 204) return null;
+  const txt = await r.text();
+  return txt ? JSON.parse(txt) : null;
+}
+async function run(promise, okMsg){
+  try {
+    const res = await promise;
+    if(okMsg) toast(okMsg);
+    return res;
+  } catch(e){
+    toast(e.message || "Đã xảy ra lỗi", true);
+    return undefined;
+  }
+}
+
+/* ================= Xác thực ================= */
+async function boot(){
+  try {
+    const me = await api("GET", "/auth/me");
+    csrf = me.csrf_token || null;
+    meInfo = me;
+    showApp();
+  } catch(e){
+    $("loginView").classList.remove("hidden");
+    $("appView").classList.add("hidden");
+  }
+}
+function showApp(){
+  $("loginView").classList.add("hidden");
+  $("appView").classList.remove("hidden");
+  $("whoami").textContent = meInfo ? (meInfo.email + (meInfo.role ? " · " + meInfo.role : "")) : "";
+  if(meInfo && meInfo.server_cert_fingerprint){
+    $("certFp").textContent = meInfo.server_cert_fingerprint;
+    $("certFpLine").hidden = false;
+  }
+  loadAll();
+}
+$("loginForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const body = { email: $("liEmail").value.trim(), password: $("liPass").value };
+  const totp = $("liTotp").value.trim();
+  if(totp) body.totp = totp;
+  const res = await run(api("POST", "/auth/login", body));
+  if(res){
+    csrf = res.csrf_token || null;
+    meInfo = res;
+    showApp();
+  }
+});
+$("btnLogout").addEventListener("click", async () => {
+  await run(api("POST", "/auth/logout", {}));
+  csrf = null; meInfo = null;
+  location.reload();
+});
+
+async function loadAll(){
+  await loadChildren();
+  loadRequests();
+  loadAudit();
+}
+
+/* ================= Trẻ & thiết bị ================= */
+$("addChildForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const body = { name: $("acName").value.trim(), dob: $("acDob").value || null };
+  const res = await run(api("POST", "/children", body), "Đã thêm trẻ.");
+  if(res){ $("acName").value = ""; $("acDob").value = ""; loadChildren(); }
+});
+
+async function loadChildren(){
+  const data = await run(api("GET", "/children"));
+  if(!data) return;
+  childrenData = data;
+  renderChildren();
+  // Giữ lựa chọn cũ nếu còn tồn tại, nếu không thì chọn thiết bị đầu tiên chưa thu hồi
+  let found = false;
+  for(const c of childrenData){ for(const d of (c.devices || [])){ if(d.id === selDeviceId) found = true; } }
+  if(!found){
+    selDeviceId = null; selChildId = null;
+    outer:
+    for(const c of childrenData){
+      for(const d of (c.devices || [])){
+        if(!d.revoked){ selectDevice(c.id, d.id, d.name, true); break outer; }
+      }
+    }
+    if(!selDeviceId) updateSelectionUI();
+  } else {
+    renderChildren();
+    updateSelectionUI();
+  }
+}
+
+function renderChildren(){
+  const wrap = $("childrenList");
+  wrap.innerHTML = "";
+  if(!childrenData.length){
+    wrap.innerHTML = '<p class="hint">Chưa có trẻ nào. Hãy thêm trẻ ở form bên dưới.</p>';
+    return;
+  }
+  for(const c of childrenData){
+    const card = document.createElement("div");
+    card.className = "child-card";
+    let html = "<h3>" + esc(c.name) + "</h3>";
+    html += '<p class="hint">Ngày sinh: ' + (c.dob ? fmtDate(c.dob) : "—") + "</p>";
+    const devs = c.devices || [];
+    if(!devs.length){
+      html += '<p class="hint">Chưa có thiết bị nào. Bấm “Tạo mã ghép đôi” rồi nhập mã vào agent trên máy của trẻ.</p>';
+    }
+    for(const d of devs){
+      html += '<div class="device-row' + (d.id === selDeviceId ? " selected" : "") + '">'
+        + '<div class="grow"><strong>' + esc(d.name) + "</strong> "
+        + (d.revoked ? '<span class="badge revoked">Đã thu hồi</span>' : '<span class="badge active">Đang hoạt động</span>')
+        + '<div class="hint" style="margin:2px 0 0">Kết nối gần nhất: ' + fmtTs(d.last_seen) + "</div></div>"
+        + (d.revoked ? "" : '<button type="button" class="small" data-act="select" data-child="' + c.id + '" data-dev="' + d.id + '" data-name="' + esc(d.name) + '">Quản lý thiết bị này</button>')
+        + (d.revoked ? "" : '<button type="button" class="small danger" data-act="revoke" data-dev="' + d.id + '">Thu hồi</button>')
+        + "</div>";
+    }
+    html += '<div style="margin-top:10px"><button type="button" class="secondary" data-act="pair" data-child="' + c.id + '">Tạo mã ghép đôi</button></div>';
+    html += '<div class="pairbox" id="pair-' + c.id + '"></div>';
+    card.innerHTML = html;
+    wrap.appendChild(card);
+  }
+  wrap.querySelectorAll("button[data-act]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const act = b.getAttribute("data-act");
+      if(act === "select"){
+        selectDevice(parseInt(b.getAttribute("data-child"), 10), parseInt(b.getAttribute("data-dev"), 10), b.getAttribute("data-name") || "");
+      } else if(act === "revoke"){
+        if(!confirm("Thu hồi thiết bị này? Agent trên máy của trẻ sẽ mất quyền kết nối ngay.")) return;
+        const res = await run(api("POST", "/devices/" + b.getAttribute("data-dev") + "/revoke", {}), "Đã thu hồi thiết bị.");
+        if(res !== undefined) loadChildren();
+      } else if(act === "pair"){
+        createPairing(parseInt(b.getAttribute("data-child"), 10));
+      }
+    });
+  });
+}
+
+async function createPairing(childId){
+  const res = await run(api("POST", "/pairing-codes", { child_id: childId }));
+  if(!res) return;
+  const box = $("pair-" + childId);
+  if(box){
+    box.style.display = "block";
+    box.innerHTML = '<div>Mã ghép đôi của trẻ:</div><div class="code">' + esc(res.code) + "</div>"
+      + "<div>Mã hết hạn sau 10 phút — hãy nhập mã vào agent trên máy của trẻ ngay.</div>";
+  }
+}
+
+function selectDevice(childId, deviceId, name, silent){
+  selChildId = childId;
+  selDeviceId = deviceId;
+  selDeviceName = name || ("Thiết bị #" + deviceId);
+  renderChildren();
+  updateSelectionUI();
+  loadPolicy();
+  loadReport();
+  if(!silent) toast("Đang quản lý: " + selDeviceName);
+}
+
+function updateSelectionUI(){
+  const label = selDeviceId ? ("— " + selDeviceName) : "";
+  $("polDeviceLabel").textContent = label;
+  $("cmdDeviceLabel").textContent = label;
+  $("repDeviceLabel").textContent = label;
+  $("policyBody").classList.toggle("hidden", !selDeviceId);
+  $("policyEmpty").classList.toggle("hidden", !!selDeviceId);
+  $("reportBody").classList.toggle("hidden", !selDeviceId);
+  $("reportEmpty").classList.toggle("hidden", !!selDeviceId);
+  const del = $("btnDeleteChildData");
+  del.disabled = !selChildId;
+  if(selChildId){
+    const c = childrenData.find((x) => x.id === selChildId);
+    del.textContent = "Xóa toàn bộ dữ liệu của con tôi" + (c ? " (" + c.name + ")" : "");
+  } else {
+    del.textContent = "Xóa toàn bộ dữ liệu của con tôi";
+  }
+}
+
+$("btnDeleteChildData").addEventListener("click", async () => {
+  if(!selChildId) return;
+  const c = childrenData.find((x) => x.id === selChildId);
+  const name = c ? c.name : "trẻ này";
+  if(!confirm("XÓA TOÀN BỘ dữ liệu của " + name + "?\n\nSự kiện sử dụng và yêu cầu sẽ bị xóa khỏi máy chủ, đồng thời các thiết bị của trẻ cũng được thông báo để xóa dữ liệu. Hành động này KHÔNG thể hoàn tác.")) return;
+  const res = await run(api("DELETE", "/children/" + selChildId + "/data"));
+  if(res){
+    toast("Đã xóa: " + (res.events_deleted || 0) + " sự kiện, " + (res.requests_deleted || 0) + " yêu cầu; đã thông báo " + (res.devices_notified || 0) + " thiết bị.");
+    loadChildren();
+    loadRequests();
+    loadAudit();
+    if(selDeviceId) loadReport();
+  }
+});
+
+/* ================= Chính sách ================= */
+function blankSchedule(fill){
+  const s = [];
+  for(let r = 0; r < 7; r++){ s.push(new Array(48).fill(fill)); }
+  return s;
+}
+
+async function loadPolicy(){
+  if(!selDeviceId) return;
+  const doc = await run(api("GET", "/policy/" + selDeviceId));
+  if(!doc) return;
+  policyDoc = doc;
+  renderTime(doc);
+  renderApps(doc);
+  renderWeb(doc);
+}
+
+async function refreshPolicyParts(){
+  if(!selDeviceId) return;
+  const doc = await run(api("GET", "/policy/" + selDeviceId));
+  if(!doc) return;
+  policyDoc = doc;
+  $("polVersion").textContent = "Phiên bản chính sách: " + (doc.version != null ? doc.version : "—");
+  renderApps(doc);
+  renderWeb(doc);
+}
+
+function renderTime(doc){
+  const t = doc.time || {};
+  $("polVersion").textContent = "Phiên bản chính sách: " + (doc.version != null ? doc.version : "—");
+  $("tpQuotaWd").value = t.quota_weekday_min != null ? t.quota_weekday_min : "";
+  $("tpQuotaWe").value = t.quota_weekend_min != null ? t.quota_weekend_min : "";
+  $("tpGrace").value = t.grace_sec != null ? t.grace_sec : "";
+  $("tpWarn").value = Array.isArray(t.warn_at_min) ? t.warn_at_min.join(",") : "";
+  const gb = t.group_budgets_min || {};
+  $("gbHocTap").value = gb.hoc_tap != null ? gb.hoc_tap : "";
+  $("gbGiaiTri").value = gb.giai_tri != null ? gb.giai_tri : "";
+  $("gbGame").value = gb.game != null ? gb.game : "";
+  $("gbKhac").value = gb.khac != null ? gb.khac : "";
+  if(Array.isArray(t.schedule) && t.schedule.length === 7){
+    schedule = t.schedule.map((row) => {
+      const r = new Array(48).fill(0);
+      (row || []).slice(0, 48).forEach((v, i) => { r[i] = v ? 1 : 0; });
+      return r;
+    });
+  } else {
+    schedule = blankSchedule(0);
+  }
+  buildScheduleGrid();
+}
+
+function numOrNull(v){
+  if(v === "" || v == null) return null;
+  const n = parseInt(v, 10);
+  return isNaN(n) ? null : n;
+}
+function numOrKeep(v){
+  if(v === "" || v == null) return undefined;
+  const n = parseInt(v, 10);
+  return isNaN(n) ? undefined : n;
+}
+
+$("btnSaveTime").addEventListener("click", async () => {
+  if(!selDeviceId || !schedule) return;
+  const warn = $("tpWarn").value.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n) && n > 0);
+  const body = {
+    schedule: schedule,
+    group_budgets_min: {
+      hoc_tap: numOrNull($("gbHocTap").value),
+      giai_tri: numOrNull($("gbGiaiTri").value),
+      game: numOrNull($("gbGame").value),
+      khac: numOrNull($("gbKhac").value)
+    }
+  };
+  const qw = numOrKeep($("tpQuotaWd").value); if(qw !== undefined) body.quota_weekday_min = qw;
+  const qe = numOrKeep($("tpQuotaWe").value); if(qe !== undefined) body.quota_weekend_min = qe;
+  const gr = numOrKeep($("tpGrace").value); if(gr !== undefined) body.grace_sec = gr;
+  if(warn.length) body.warn_at_min = warn;
+  const doc = await run(api("PUT", "/policy/" + selDeviceId + "/time", body), "Đã lưu thời gian & lịch.");
+  if(doc){ policyDoc = doc; renderTime(doc); renderApps(doc); renderWeb(doc); loadAudit(); }
+});
+
+/* ---- Trình sửa lịch 7x48 ---- */
+let painting = false;
+let paintValue = 1;
+function buildScheduleGrid(){
+  const g = $("schedGrid");
+  g.innerHTML = "";
+  const corner = document.createElement("div");
+  g.appendChild(corner);
+  for(let c = 0; c < 48; c++){
+    const h = document.createElement("div");
+    h.className = "hlab";
+    h.textContent = (c % 2 === 0) ? (c / 2) + "h" : "";
+    g.appendChild(h);
+  }
+  for(let r = 0; r < 7; r++){
+    const lab = document.createElement("div");
+    lab.className = "rlab";
+    lab.textContent = DAY_LABELS[r];
+    g.appendChild(lab);
+    for(let c = 0; c < 48; c++){
+      const cell = document.createElement("div");
+      cell.className = "cell" + (schedule[r][c] ? " on" : "");
+      cell.setAttribute("data-r", r);
+      cell.setAttribute("data-c", c);
+      cell.title = DAY_LABELS[r] + " " + String(Math.floor(c / 2)).padStart(2, "0") + ":" + (c % 2 ? "30" : "00");
+      g.appendChild(cell);
+    }
+  }
+}
+function setCell(cell, v){
+  const r = parseInt(cell.getAttribute("data-r"), 10);
+  const c = parseInt(cell.getAttribute("data-c"), 10);
+  schedule[r][c] = v;
+  cell.classList.toggle("on", !!v);
+}
+$("schedGrid").addEventListener("pointerdown", (ev) => {
+  const cell = ev.target.closest(".cell");
+  if(!cell || !schedule) return;
+  ev.preventDefault();
+  painting = true;
+  const r = parseInt(cell.getAttribute("data-r"), 10);
+  const c = parseInt(cell.getAttribute("data-c"), 10);
+  paintValue = schedule[r][c] ? 0 : 1;
+  setCell(cell, paintValue);
+});
+$("schedGrid").addEventListener("pointerover", (ev) => {
+  if(!painting || !schedule) return;
+  const cell = ev.target.closest(".cell");
+  if(cell) setCell(cell, paintValue);
+});
+window.addEventListener("pointerup", () => { painting = false; });
+$("btnSchedAll").addEventListener("click", () => {
+  if(!schedule) return;
+  schedule = blankSchedule(1);
+  buildScheduleGrid();
+});
+$("btnSchedNone").addEventListener("click", () => {
+  if(!schedule) return;
+  schedule = blankSchedule(0);
+  buildScheduleGrid();
+});
+
+/* ---- Quy tắc ứng dụng ---- */
+function renderApps(doc){
+  const tb = $("appsBody");
+  tb.innerHTML = "";
+  const apps = doc.apps || [];
+  if(!apps.length){
+    tb.innerHTML = '<tr><td colspan="7" class="hint">Chưa có quy tắc ứng dụng nào.</td></tr>';
+    return;
+  }
+  for(const a of apps){
+    const win = (a.windows && a.windows.length)
+      ? a.windows.map((w) => esc(w.from) + "–" + esc(w.to)).join(", ")
+      : "Cả ngày";
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + esc(a.name) + "</td>"
+      + '<td class="mono">' + (a.sha256 ? esc(String(a.sha256).slice(0, 12)) + "…" : "—") + "</td>"
+      + "<td>" + (a.action === "block" ? "Chặn" : "Cho phép") + "</td>"
+      + "<td>" + esc(APP_CAT_LABELS[a.category] || a.category || "—") + "</td>"
+      + "<td>" + win + "</td>"
+      + "<td>" + (a.daily_cap_min != null ? a.daily_cap_min : "—") + "</td>"
+      + '<td><button type="button" class="small danger">Xóa</button></td>';
+    tr.querySelector("button").addEventListener("click", async () => {
+      if(!confirm("Xóa quy tắc cho ứng dụng " + a.name + "?")) return;
+      const res = await run(api("DELETE", "/policy/" + selDeviceId + "/apps/" + a.id), "Đã xóa quy tắc ứng dụng.");
+      if(res !== undefined){ refreshPolicyParts(); loadAudit(); }
+    });
+    tb.appendChild(tr);
+  }
+}
+
+$("addAppForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if(!selDeviceId) return;
+  const windows = [];
+  const from = $("aaFrom").value.trim(), to = $("aaTo").value.trim();
+  if(from && to) windows.push({ from: from, to: to });
+  const body = {
+    name: $("aaName").value.trim(),
+    sha256: $("aaSha").value.trim(),
+    action: $("aaAction").value,
+    category: $("aaCat").value,
+    windows: windows,
+    daily_cap_min: numOrNull($("aaCap").value)
+  };
+  const res = await run(api("POST", "/policy/" + selDeviceId + "/apps", body), "Đã thêm quy tắc ứng dụng.");
+  if(res){ $("addAppForm").reset(); refreshPolicyParts(); loadAudit(); }
+});
+
+/* ---- Lọc web ---- */
+function renderWeb(doc){
+  const web = doc.web || {};
+  $("blockedCount").textContent = Array.isArray(web.blocked_domains) ? web.blocked_domains.length : "—";
+  // Chính sách theo nhóm
+  const row = $("catPolicyRow");
+  row.innerHTML = "";
+  const cp = web.category_policy || {};
+  for(const key of Object.keys(CAT_LABELS)){
+    const div = document.createElement("div");
+    div.innerHTML = "<label>" + CAT_LABELS[key] + "</label>"
+      + '<select data-cat="' + key + '"><option value="allow">Cho phép</option><option value="block">Chặn</option></select>';
+    const sel = div.querySelector("select");
+    sel.value = cp[key] === "block" ? "block" : "allow";
+    row.appendChild(div);
+  }
+  $("wsSafesearch").checked = !!web.safesearch;
+  $("wsNeverBlock").value = Array.isArray(web.never_block) ? web.never_block.join("\n") : "";
+  // Quy tắc miền riêng
+  const tb = $("webRulesBody");
+  tb.innerHTML = "";
+  const rules = web.rules || [];
+  if(!rules.length){
+    tb.innerHTML = '<tr><td colspan="4" class="hint">Chưa có quy tắc miền riêng nào.</td></tr>';
+    return;
+  }
+  for(const r of rules){
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + esc(r.domain) + "</td>"
+      + "<td>" + (r.action === "block" ? "Chặn" : "Cho phép") + "</td>"
+      + "<td>" + (r.set_at ? fmtTs(r.set_at) : "—") + "</td>"
+      + '<td><button type="button" class="small danger">Xóa</button></td>';
+    tr.querySelector("button").addEventListener("click", async () => {
+      if(!confirm("Xóa quy tắc cho miền " + r.domain + "?")) return;
+      const res = await run(api("DELETE", "/policy/" + selDeviceId + "/web/" + r.id), "Đã xóa quy tắc miền.");
+      if(res !== undefined){ refreshPolicyParts(); loadAudit(); }
+    });
+    tb.appendChild(tr);
+  }
+}
+
+$("btnSaveWebSettings").addEventListener("click", async () => {
+  if(!selDeviceId) return;
+  const cp = {};
+  $("catPolicyRow").querySelectorAll("select[data-cat]").forEach((s) => { cp[s.getAttribute("data-cat")] = s.value; });
+  const never = $("wsNeverBlock").value.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
+  const body = { category_policy: cp, safesearch: $("wsSafesearch").checked, never_block: never };
+  const res = await run(api("PUT", "/policy/" + selDeviceId + "/web-settings", body), "Đã lưu cài đặt lọc web.");
+  if(res !== undefined){ refreshPolicyParts(); loadAudit(); }
+});
+
+$("addWebForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if(!selDeviceId) return;
+  const body = { domain: $("awDomain").value.trim(), action: $("awAction").value };
+  const res = await run(api("POST", "/policy/" + selDeviceId + "/web", body), "Đã thêm quy tắc miền.");
+  if(res){ $("addWebForm").reset(); refreshPolicyParts(); loadAudit(); }
+});
+
+/* ================= Điều khiển từ xa ================= */
+async function sendCommand(type, payload){
+  if(!selDeviceId){ toast("Hãy chọn một thiết bị ở mục 1 trước.", true); return; }
+  const res = await run(api("POST", "/commands", { device_id: selDeviceId, type: type, payload: payload || {} }));
+  if(res){
+    $("cmdStatus").textContent = "Đã gửi lệnh “" + (CMD_LABELS[type] || type) + "” tới " + selDeviceName
+      + ". Trạng thái: " + (res.status || "đã ghi nhận") + ".";
+    loadAudit();
+  }
+}
+$("cmdLock").addEventListener("click", () => { if(confirm("Khóa máy của trẻ ngay bây giờ?")) sendCommand("lock_now"); });
+$("cmdUnlock").addEventListener("click", () => sendCommand("unlock"));
+$("cmdPlus15").addEventListener("click", () => sendCommand("grant_extra", { minutes: 15 }));
+$("cmdBreak").addEventListener("click", () => sendCommand("break_15"));
+$("cmdPause").addEventListener("click", () => { if(confirm("Tạm dừng giới hạn cho hôm nay?")) sendCommand("pause_today"); });
+$("cmdExtra").addEventListener("click", () => {
+  const m = parseInt($("cmdExtraMin").value, 10);
+  if(isNaN(m) || m <= 0){ toast("Số phút cộng thêm phải lớn hơn 0.", true); return; }
+  sendCommand("grant_extra", { minutes: m });
+});
+
+/* ================= Yêu cầu của trẻ ================= */
+$("btnRefreshReq").addEventListener("click", loadRequests);
+async function loadRequests(){
+  const data = await run(api("GET", "/requests?status=pending"));
+  if(!data) return;
+  const wrap = $("requestsList");
+  wrap.innerHTML = "";
+  if(!data.length){
+    wrap.innerHTML = '<p class="hint">Không có yêu cầu nào đang chờ duyệt.</p>';
+    return;
+  }
+  for(const r of data){
+    const dev = findDevice(r.device_id);
+    const div = document.createElement("div");
+    div.className = "req-item";
+    let title = "";
+    if(r.type === "extra_time"){
+      title = "Xin thêm giờ" + (r.minutes ? ": +" + r.minutes + " phút" : "");
+    } else if(r.type === "false_block"){
+      title = "Báo chặn nhầm" + (r.subject ? ": " + r.subject : "");
+    } else {
+      title = esc(r.type);
+    }
+    div.innerHTML = "<strong>" + esc(title) + "</strong>"
+      + '<div class="meta">Thiết bị: ' + esc(dev ? dev.name : ("#" + r.device_id))
+      + " · " + fmtTs(r.created_at) + "</div>"
+      + (r.reason ? "<div>Lý do của trẻ: " + esc(r.reason) + "</div>" : "")
+      + '<div class="row" style="margin-top:8px">'
+      + '<div><input type="text" placeholder="Ghi chú phản hồi cho trẻ (không bắt buộc)"></div>'
+      + '<div style="flex:0 1 110px"><button type="button" style="width:100%">Duyệt</button></div>'
+      + '<div style="flex:0 1 110px"><button type="button" class="danger" style="width:100%">Từ chối</button></div>'
+      + "</div>";
+    const noteInput = div.querySelector("input");
+    const btns = div.querySelectorAll("button");
+    btns[0].addEventListener("click", () => decideRequest(r.id, "approved", noteInput.value.trim()));
+    btns[1].addEventListener("click", () => decideRequest(r.id, "rejected", noteInput.value.trim()));
+    wrap.appendChild(div);
+  }
+}
+function findDevice(deviceId){
+  for(const c of childrenData){ for(const d of (c.devices || [])){ if(d.id === deviceId) return d; } }
+  return null;
+}
+async function decideRequest(id, decision, note){
+  const res = await run(api("POST", "/requests/" + id + "/decide", { decision: decision, note: note }),
+    decision === "approved" ? "Đã duyệt yêu cầu." : "Đã từ chối yêu cầu.");
+  if(res){ loadRequests(); loadAudit(); }
+}
+
+/* ================= Báo cáo ================= */
+async function loadReport(){
+  if(!selDeviceId) return;
+  const week = await run(api("GET", "/reports/" + selDeviceId + "/week"));
+  if(week && Array.isArray(week.days)){
+    const max = Math.max(1, ...week.days.map((d) => d.total_app_minutes || 0));
+    const chart = $("weekChart");
+    chart.innerHTML = "";
+    for(const d of week.days){
+      const v = d.total_app_minutes || 0;
+      const col = document.createElement("div");
+      col.className = "bar-col";
+      col.innerHTML = '<div class="bar-val">' + Math.round(v) + "′</div>"
+        + '<div class="bar" style="height:' + Math.max(2, Math.round(v / max * 105)) + 'px"></div>'
+        + '<div class="bar-lab">' + fmtDate(d.date) + "<br>" + (d.blocks || 0) + " lần chặn</div>";
+      chart.appendChild(col);
+    }
+  }
+  const today = await run(api("GET", "/reports/" + selDeviceId));
+  if(today){
+    if(today.date) $("repDate").value = String(today.date).slice(0, 10);
+    renderReport(today);
+  }
+}
+$("repDate").addEventListener("change", async () => {
+  if(!selDeviceId || !$("repDate").value) return;
+  const r = await run(api("GET", "/reports/" + selDeviceId + "?date=" + encodeURIComponent($("repDate").value)));
+  if(r) renderReport(r);
+});
+function renderReport(r){
+  const blocks = r.blocks || {};
+  let html = "<p>Tổng thời gian dùng ứng dụng: <strong>" + Math.round(r.total_app_minutes || 0) + " phút</strong>"
+    + " · Số lần chặn ứng dụng: <strong>" + (blocks.blocked_app || 0) + "</strong>"
+    + " · Số lần chặn web: <strong>" + (blocks.blocked_domain || 0) + "</strong></p>";
+  if(r.counts && typeof r.counts === "object"){
+    const parts = Object.entries(r.counts).map(([k, v]) => esc(k) + ": " + esc(v));
+    if(parts.length) html += '<p class="hint">Số liệu khác — ' + parts.join(" · ") + "</p>";
+  }
+  if(Array.isArray(r.requests)){
+    html += '<p class="hint">Yêu cầu của trẻ trong ngày: ' + r.requests.length + "</p>";
+  }
+  $("reportDetail").innerHTML = html;
+  const ta = $("topAppsBody");
+  ta.innerHTML = (r.top_apps && r.top_apps.length)
+    ? r.top_apps.slice(0, 10).map((a) => "<tr><td>" + esc(a.app) + "</td><td>" + Math.round(a.minutes || 0) + "</td></tr>").join("")
+    : '<tr><td colspan="2" class="hint">Chưa có dữ liệu.</td></tr>';
+  const td = $("topDomainsBody");
+  td.innerHTML = (r.top_domains && r.top_domains.length)
+    ? r.top_domains.slice(0, 10).map((d) => "<tr><td>" + esc(d.domain) + "</td><td>" + (d.queries || 0) + "</td></tr>").join("")
+    : '<tr><td colspan="2" class="hint">Chưa có dữ liệu.</td></tr>';
+}
+
+/* ================= Nhật ký kiểm toán ================= */
+$("btnRefreshAudit").addEventListener("click", loadAudit);
+async function loadAudit(){
+  const data = await run(api("GET", "/audit"));
+  if(!data) return;
+  const tb = $("auditBody");
+  tb.innerHTML = "";
+  if(!data.length){
+    tb.innerHTML = '<tr><td colspan="6" class="hint">Chưa có bản ghi nào.</td></tr>';
+    return;
+  }
+  for(const a of data){
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + fmtTs(a.ts) + "</td>"
+      + "<td>" + esc(a.actor) + "</td>"
+      + "<td>" + esc(a.action) + "</td>"
+      + "<td>" + esc(a.ip || "—") + "</td>"
+      + '<td class="mono">' + (a.old ? esc(JSON.stringify(a.old)) : "—") + "</td>"
+      + '<td class="mono">' + (a.new ? esc(JSON.stringify(a.new)) : "—") + "</td>";
+    tb.appendChild(tr);
+  }
+}
+
+/* ================= Phân loại miền ================= */
+$("btnDomSearch").addEventListener("click", searchDomains);
+$("domQ").addEventListener("keydown", (ev) => { if(ev.key === "Enter") searchDomains(); });
+async function searchDomains(){
+  const q = $("domQ").value.trim();
+  const cat = $("domCat").value;
+  const url = "/domains?q=" + encodeURIComponent(q) + "&category=" + encodeURIComponent(cat);
+  const data = await run(api("GET", url));
+  if(!data) return;
+  const tb = $("domainsBody");
+  tb.innerHTML = "";
+  if(!data.length){
+    tb.innerHTML = '<tr><td colspan="3" class="hint">Không tìm thấy miền nào phù hợp.</td></tr>';
+    return;
+  }
+  for(const d of data){
+    const tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + esc(d.domain) + "</td>"
+      + "<td>" + esc(CAT_LABELS[d.category] || d.category || "—") + "</td>"
+      + "<td>" + esc(d.note || "") + "</td>";
+    tb.appendChild(tr);
+  }
+}
+
+/* ================= Khởi động ================= */
+boot();
+</script>
+</body>
+</html>

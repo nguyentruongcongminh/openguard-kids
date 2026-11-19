@@ -1,0 +1,21 @@
+# Môi trường & cache
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# Bí mật & dữ liệu chạy thật — KHÔNG bao giờ đưa lên repo
+certs/
+*.db
+*.db-wal
+*.db-shm
+config.json
+chay-server.ps1
+*.local.ps1
+
+# File nhị phân bên thứ ba (WinSW) — lấy theo Giai đoạn 0.5 trong README
+tools/ogk-service-host.exe
+tools/ogk-service-host.xml
+
+# Nhật ký
+*.log
