@@ -5,8 +5,9 @@ import sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from shared.contract import (default_policy_document, domain_matches,  # noqa: E402
-                             is_never_blocked, normalize_domain, sign_policy)
+from shared.contract import (DOH_ENDPOINTS, default_policy_document,  # noqa: E402
+                             domain_matches, is_never_blocked, normalize_domain,
+                             sign_policy)
 
 from .models import DomainCategory, Policy
 from .security import decrypt_field
@@ -41,6 +42,10 @@ def compute_blocked_domains(db, doc: dict) -> list:
     web = doc.get("web", {})
     cat_policy = web.get("category_policy", {})
     blocked = {d for d, c in category_map(db).items() if cat_policy.get(c) == "block"}
+    # Điểm cuối DoH: chặn theo mặc định bất kể chính sách nhóm (F2.3) — trình
+    # duyệt dùng DoH là vượt toàn bộ lọc DNS. Luật allow tường minh của phụ
+    # huynh vẫn thắng (được trừ ở vòng lọc bên dưới, như mọi miền khác).
+    blocked |= set(DOH_ENDPOINTS)
     allows = []
     for rule in web.get("rules", []):
         dom = normalize_domain(rule.get("domain"))

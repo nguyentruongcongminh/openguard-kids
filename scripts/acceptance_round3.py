@@ -1,8 +1,11 @@
 """VÒNG 3 — Nghiệm thu theo đúng tiêu chí của đề bài.
 
 1) Bộ 60 miền kiểm thử (phụ lục đề): 0 chặn nhầm trên 20 miền giáo dục,
-   chặn >= 95% trên nhóm phải chặn theo chính sách mặc định 6-11 tuổi,
-   5 điểm cuối DoH phải hiện diện trong bảng phân loại để phụ huynh quyết định.
+   chặn >= 95% trên nhóm phải chặn theo chính sách mặc định 6-11 tuổi
+   (mạng xã hội + trò chơi theo phân loại, 10 miền "không phù hợp" MÔ PHỎNG
+   bằng hậu tố .invalid theo đúng yêu cầu của đề — đi qua đúng đường PHÂN
+   LOẠI khong_phu_hop như miền thật, lý do chặn phải là listed;
+   5 điểm cuối DoH bị chặn theo mặc định với lý do doh_endpoint).
 2) Đo sai số đếm giờ bằng đồng hồ thật (~10 giây) và kịch bản quota thật
    (1 phút + ân hạn 10 giây -> khóa).
 3) Lịch tuần: ngoài khung giờ -> khóa trong vòng 5 giây.
@@ -36,12 +39,24 @@ def check(name, ok, detail=""):
 
 def main():
     # ------------------------------------------------ 1) bộ miền kiểm thử
-    from app.models import Base, SessionLocal, engine
+    from app.models import Base, DomainCategory, SessionLocal, engine
     Base.metadata.create_all(bind=engine)
     from app.policy import compute_blocked_domains, seed_domain_categories
     from shared.contract import default_policy_document
     db = SessionLocal()
     seed_domain_categories(db)
+    # Miền mô phỏng (.invalid, RFC 2606 — không tồn tại thật): nạp vào BẢNG
+    # PHÂN LOẠI với nhóm khong_phu_hop để phép đo đi qua đúng cơ chế phân
+    # loại -> compute_blocked_domains -> blocked_domains (lý do "listed"),
+    # thay vì luật đích danh như trước (review 2, F2.3 NÊN SỬA).
+    _rows = list(csv.DictReader(open(os.path.join(
+        ROOT, "server", "data", "test_domains.csv"), encoding="utf-8")))
+    for r in _rows:
+        if r["domain"].endswith(".invalid"):
+            db.add(DomainCategory(
+                domain=r["domain"], category="khong_phu_hop",
+                note="Miền mô phỏng cho kiểm thử — không phải miền thật"))
+    db.commit()
     doc = default_policy_document(1, 1)
     doc["web"]["blocked_domains"] = compute_blocked_domains(db, doc)
     db.close()
@@ -52,18 +67,12 @@ def main():
     pm = PolicyManager(store, "")
     pm._doc = doc  # tài liệu do server phát hành (đã tính blocked_domains)
 
-    rows = list(csv.DictReader(open(os.path.join(
-        ROOT, "server", "data", "test_domains.csv"), encoding="utf-8")))
+    rows = _rows
     assert len(rows) == 60, len(rows)
     edu_fp = block_hits = block_total = 0
-    cats = {}
-    from app.models import DomainCategory
-    db = SessionLocal()
-    cats = {r.domain: (r.category, r.note) for r in db.query(DomainCategory).all()}
-    db.close()
-    flag_ok = 0
+    doh_ok = sim_listed = 0
     for r in rows:
-        decision = pm.web_decision(r["domain"])
+        decision, reason = pm.web_decision_detail(r["domain"])
         if r["expected"] == "allow":
             if r["category"] == "giao_duc" and decision != "allow":
                 edu_fp += 1
@@ -71,18 +80,21 @@ def main():
             block_total += 1
             if decision == "block":
                 block_hits += 1
-        elif r["expected"] == "flag":
-            cat, note = cats.get(r["domain"], ("", ""))
-            if cat == "chua_phan_loai" and "DoH" in note:
-                flag_ok += 1
+            if r["category"] == "chua_phan_loai" and (decision, reason) == ("block", "doh_endpoint"):
+                doh_ok += 1
+            if r["domain"].endswith(".invalid") and (decision, reason) == ("block", "listed"):
+                sim_listed += 1
     check("Bộ 60 miền: 0 chặn nhầm trên 20 miền giáo dục", edu_fp == 0, f"fp={edu_fp}")
     rate = block_hits / block_total if block_total else 0
     check(f"Bộ 60 miền: tỉ lệ chặn nhóm phải chặn >= 95% (đạt {block_hits}/{block_total})",
           rate >= 0.95)
-    check("5 điểm cuối DoH có trong bảng phân loại (note DoH) để phụ huynh quyết định",
-          flag_ok == 5, f"flag_ok={flag_ok}")
-    check("NT6: blocked_domains không chứa miền .gov.vn nào",
-          not any(d.endswith(".gov.vn") for d in doc["web"]["blocked_domains"]))
+    check("10 miền mô phỏng bị chặn qua PHÂN LOẠI (lý do listed)",
+          sim_listed == 10, f"sim_listed={sim_listed}")
+    check("5 điểm cuối DoH bị chặn theo mặc định (lý do doh_endpoint)",
+          doh_ok == 5, f"doh_ok={doh_ok}")
+    check("NT6: blocked_domains không chứa miền .gov.vn/.edu.vn/tongdai111.vn nào",
+          not any(d.endswith((".gov.vn", ".edu.vn")) or d == "tongdai111.vn"
+                  for d in doc["web"]["blocked_domains"]))
 
     # ------------------------------------------------ 2) đo sai số đếm giờ (đồng hồ thật)
     from agent.timekeeper import TimeKeeper

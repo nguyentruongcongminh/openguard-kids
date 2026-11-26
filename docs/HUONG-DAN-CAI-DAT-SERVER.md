@@ -117,6 +117,12 @@ Server tự tạo tài khoản demo khi chạy lần đầu:
    nghĩa là biến `OGK_TLS_CERT` chưa được đặt khi chạy server.
 3. Đổi mật khẩu / tạo tài khoản phụ huynh thật nếu dùng lâu dài.
 
+Lưu ý bảo mật của launcher (`scripts/run_server.py`, từ vòng sửa 11/2026):
+cookie phiên đăng nhập luôn có cờ **Secure** khi chạy qua launcher (biến
+`OGK_SECURE_COOKIES` được đặt sẵn =1; chỉ đặt =0 khi gỡ lỗi HTTP cục bộ),
+và server **chỉ nhận TLS 1.2 trở lên** (sàn TLS ép trên SSL context —
+trình duyệt/agent quá cũ dùng TLS 1.0/1.1 sẽ bị từ chối bắt tay).
+
 ## 9. Kiểm tra từ máy khác trong LAN
 
 Trên máy trẻ (trước khi cài agent):

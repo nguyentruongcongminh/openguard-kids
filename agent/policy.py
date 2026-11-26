@@ -9,8 +9,8 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from shared.contract import (domain_matches, is_never_blocked,  # noqa: E402
-                             normalize_domain, verify_policy)
+from shared.contract import (domain_matches, is_doh_endpoint,  # noqa: E402
+                             is_never_blocked, normalize_domain, verify_policy)
 
 
 class PolicyManager:
@@ -69,26 +69,34 @@ class PolicyManager:
         return is_never_blocked(domain, self.never_block_list())
 
     def web_decision(self, domain) -> str:
-        """"allow" | "block" — thứ tự: miễn chặn > allow tường minh >
-        block tường minh > danh sách blocked_domains (đã tính từ phân loại)."""
+        return self.web_decision_detail(domain)[0]
+
+    def web_decision_detail(self, domain) -> tuple:
+        """(decision, reason) — thứ tự: miễn chặn NT6 > allow tường minh >
+        block tường minh > điểm cuối DoH (chặn mặc định, F2.3) > danh sách
+        blocked_domains (đã tính từ phân loại). reason thuộc:
+        never_block | rule_allow | rule_block | doh_endpoint | listed | default.
+        Kiểm DoH chạy cả khi chưa có policy (mới cài, chưa ghép đôi xong)."""
         d = normalize_domain(domain)
         if not d:
-            return "allow"
+            return ("allow", "default")
         if self.is_never_blocked(d):
-            return "allow"
+            return ("allow", "never_block")
         web = self.web_cfg()
         for rule in web.get("rules", []) or []:
             if domain_matches(d, rule.get("domain", "")):
                 if rule.get("action") == "allow":
-                    return "allow"
+                    return ("allow", "rule_allow")
         for rule in web.get("rules", []) or []:
             if domain_matches(d, rule.get("domain", "")):
                 if rule.get("action") == "block":
-                    return "block"
+                    return ("block", "rule_block")
+        if is_doh_endpoint(d):
+            return ("block", "doh_endpoint")
         for blocked in web.get("blocked_domains", []) or []:
             if domain_matches(d, blocked):
-                return "block"
-        return "allow"
+                return ("block", "listed")
+        return ("allow", "default")
 
     def safesearch_on(self) -> bool:
         return bool(self.web_cfg().get("safesearch", False))

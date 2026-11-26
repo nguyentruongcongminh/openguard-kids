@@ -44,10 +44,29 @@ COMMAND_TYPES = (
     "lock_now", "unlock", "grant_extra", "break_15", "pause_today", "wipe_cache",
 )
 
-# Miễn chặn vĩnh viễn (NT6): dịch vụ nhà nước (.gov.vn — gồm cổng Tổng đài
-# bảo vệ trẻ em 111 và thông tin khẩn cấp) không bao giờ bị chặn, bất kể luật.
-NEVER_BLOCK_SUFFIXES = (".gov.vn",)
-_GOV_APEX = {"gov.vn"}
+# Miễn chặn vĩnh viễn (NT6): miền nhà nước (.gov.vn) và giáo dục (.edu.vn —
+# cổng thông tin trường học) không bao giờ bị chặn, bất kể luật nào.
+NEVER_BLOCK_SUFFIXES = (".gov.vn", ".edu.vn")
+_GOV_APEX = {"gov.vn", "edu.vn"}
+
+# Tên miền đích danh miễn chặn vĩnh viễn (NT6): website chính thức của Tổng
+# đài quốc gia bảo vệ trẻ em 111 là tongdai111.vn — KHÔNG thuộc .gov.vn,
+# nên phải liệt kê riêng. Nguồn xác minh (11/2026): chính trang chủ
+# https://tongdai111.vn của Tổng đài 111 (Bộ Y tế); Cổng thông tin điện tử
+# tỉnh Nghệ An (thanlinh.nghean.gov.vn) cũng ghi "Website Tổng đài 111:
+# Tongdai111.vn".
+NEVER_BLOCK_DOMAINS = ("tongdai111.vn",)
+
+# Điểm cuối DNS-over-HTTPS (DoH) đã biết: trình duyệt bật DoH là đi vòng qua
+# DNS proxy, thoát khỏi toàn bộ lọc web — chặn theo mặc định (F2.3); phụ
+# huynh vẫn cho phép đích danh được bằng luật allow. 6 miền đầu khớp các
+# dòng ghi chú DoH trong server/data/domain_categories.csv (có test khớp);
+# use-application-dns.net là miền canary của Firefox: bị chặn/NXDOMAIN thì
+# Firefox tự tắt DoH mặc định.
+DOH_ENDPOINTS = (
+    "dns.google", "cloudflare-dns.com", "dns.quad9.net", "dns.adguard-dns.com",
+    "dns.nextdns.io", "one.one.one.one", "use-application-dns.net",
+)
 
 _MULTI_LABEL_SUFFIXES = (
     "edu.vn", "com.vn", "net.vn", "org.vn", "gov.vn", "co.uk", "com.au",
@@ -95,7 +114,15 @@ def is_never_blocked(domain: object, never_block_list=()) -> bool:
         return False
     if d in _GOV_APEX or any(d == s.lstrip(".") or d.endswith(s) for s in NEVER_BLOCK_SUFFIXES):
         return True
+    if any(domain_matches(d, item) for item in NEVER_BLOCK_DOMAINS):
+        return True
     return any(domain_matches(d, item) for item in (never_block_list or ()))
+
+
+def is_doh_endpoint(domain: object) -> bool:
+    """Tên miền (hoặc miền con) là điểm cuối DoH đã biết hay không."""
+    d = normalize_domain(domain)
+    return bool(d) and any(domain_matches(d, e) for e in DOH_ENDPOINTS)
 
 
 # ---------------------------------------------------------------- lịch tuần

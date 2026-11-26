@@ -16,10 +16,13 @@ Hai cách sửa đã thử và KHÔNG dùng:
   tín hiệu Ctrl+C kém, lệnh force-quit của uvicorn không tới được
   (đã gặp trên máy Windows thật 16/11/2026).
 
-Cách dùng ở bản này: chạy uvicorn.run(...) nguyên bản (Ctrl+C tắt như
-thường) + gắn một bộ lọc vào logger "asyncio" để chỉ nuốt đúng loại
-traceback vô hại nói trên (đúng callback _call_connection_lost + đúng
-ConnectionResetError); mọi lỗi asyncio khác vẫn in bình thường.
+Cách dùng ở bản này: chạy qua uvicorn.Config + Server (đường code nội bộ
+của uvicorn.run, Ctrl+C tắt như thường) + gắn một bộ lọc vào logger
+"asyncio" để chỉ nuốt đúng loại traceback vô hại nói trên (đúng callback
+_call_connection_lost + đúng ConnectionResetError); mọi lỗi asyncio khác
+vẫn in bình thường. Launcher cũng đặt sẵn OGK_SECURE_COOKIES=1 (cookie
+phiên có cờ Secure — F5.2; đặt biến này =0 từ ngoài để tắt khi chạy HTTP
+cục bộ) và ép sàn TLS 1.2 trên SSL context của uvicorn (F5.3).
 
 Launcher tự chdir vào thư mục server/ (nơi chứa ogk.db khi chạy tay) và mặc
 định trỏ chứng chỉ vào certs/ ở gốc dự án, nên dữ liệu cũ giữ nguyên dù gọi
@@ -58,8 +61,23 @@ def _utf8_stdio():
             pass
 
 
+def _tls12_context_factory(config, default_factory):
+    """Sàn TLS 1.2 (F5.3): uvicorn dựng SSL context qua factory này trong
+    config.load() — ép minimum_version tại đây mới chắc chắn tới được
+    context mà server dùng thật (gán sau load() sẽ bị serve() nạp lại)."""
+    import ssl
+    ctx = default_factory()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return ctx
+
+
 def main():
     _utf8_stdio()
+    # Cookie phiên có cờ Secure theo mặc định khi chạy qua launcher này
+    # (server luôn chạy HTTPS). setdefault: tôn trọng giá trị đặt từ ngoài
+    # (OGK_SECURE_COOKIES=0 khi gỡ lỗi HTTP cục bộ). Phải đặt TRƯỚC khi app
+    # được nạp — app đọc biến này ở request đăng nhập.
+    os.environ.setdefault("OGK_SECURE_COOKIES", "1")
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8000)
@@ -78,8 +96,11 @@ def main():
     os.chdir(server_dir)  # ogk.db mặc định nằm cạnh app như khi chạy uvicorn tay
 
     import uvicorn
-    uvicorn.run("app.main:app", host=args.host, port=args.port,
-                ssl_keyfile=args.ssl_keyfile, ssl_certfile=args.ssl_certfile)
+    config = uvicorn.Config("app.main:app", host=args.host, port=args.port,
+                            ssl_keyfile=args.ssl_keyfile,
+                            ssl_certfile=args.ssl_certfile,
+                            ssl_context_factory=_tls12_context_factory)
+    uvicorn.Server(config).run()
 
 
 if __name__ == "__main__":

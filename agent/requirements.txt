@@ -2,5 +2,5 @@ pywin32>=306; sys_platform == "win32"
 psutil>=5.9
 requests>=2.31
 websocket-client>=1.7
-pystray>=0.19
+pystray==0.19.5
 Pillow>=10

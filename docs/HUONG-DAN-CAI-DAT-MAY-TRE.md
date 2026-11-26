@@ -15,7 +15,11 @@ hệ thống. Làm đúng thứ tự dưới đây — mỗi bước đều có 
 - Tài khoản trẻ dùng hằng ngày phải là **Standard User** (không thuộc nhóm
   Administrators) — nếu trẻ có quyền admin, trẻ gỡ được agent.
 - Cài đặt thực hiện bằng một tài khoản Administrator trên máy trẻ.
-
+- Mọi tài khoản Windows khác trên máy (anh/chị, phụ huynh...) phải có mật
+  khẩu mà trẻ **không biết**, và tắt tài khoản **Guest**: cơ chế giới
+  hạn giờ chỉ áp cho phiên của tài khoản trẻ — trẻ đăng nhập bằng tài
+  khoản khác sẽ không bị khóa giờ, và hoạt động ở phiên đó vẫn bị ghi
+  vào dữ liệu thiết bị của trẻ.
 ## Bước 1 — Giải nén mã nguồn
 
 Giải nén `OpenGuardKids-v2.zip`, đặt thư mục dự án tại
@@ -72,9 +76,19 @@ bước 6. (Chế độ console chỉ để kiểm tra — vận hành thật d�
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-.\scripts\install_agent.ps1
+.\scripts\install_agent.ps1 -ChildUser <tên tài khoản Windows của trẻ>
 Get-Service OpenGuardKidsAgent
 ```
+
+Tham số `-ChildUser` là **bắt buộc** (thiếu là script dừng lỗi): script ghi
+tên tài khoản của trẻ vào `config.json` (`child_windows_user`) để watchdog
+của agent nhận biết đúng phiên đăng nhập của trẻ qua trạng thái phiên
+Windows (WTS) — nhờ vậy agent không tự dừng oan trong lúc cài bằng tài
+khoản admin, và trẻ tắt `explorer.exe` cũng không lách được cơ chế minh
+bạch. Lấy tên tài khoản bằng lệnh `Get-LocalUser`, hoặc chạy `whoami`
+trong phiên đăng nhập của trẻ (với tài khoản Microsoft, tên tài khoản cục
+bộ khác tên hiển thị). Script sẽ báo lỗi nếu tài khoản không tồn tại và
+cảnh báo nếu tài khoản là Administrator (trẻ nên dùng tài khoản Standard).
 
 Script cài đặt làm các việc sau (công khai, đúng tinh thần "đồng hành minh
 bạch"): tạo `C:\ProgramData\OpenGuardKids` với ACL chỉ SYSTEM +
@@ -165,7 +179,8 @@ Get-NetAdapter | Where-Object Status -eq "Up" | Set-DnsClientServerAddress -Rese
 | Service cài xong nhưng không khởi động được ở bản pywin32 cũ | Đã thay bằng WinSW — bản hiện tại không còn lỗi này; kiểm tra log tại `C:\ProgramData\OpenGuardKids\ogk-service-host.*.log` |
 | Dùng máy mà số phút không tăng | Kiểm tra Tray có đang chạy không (agent nhận idle/khóa từ Tray trong phiên của trẻ — xem tài liệu kỹ thuật mạng, mục session-0) |
 | Hết giờ, có thông báo nhưng máy không khóa | Tray chưa chạy hoặc đang chạy bản cũ — khóa máy do **Tray** thực thi trong phiên; khởi động lại Tray theo bước 7 |
-| Vào web được nhưng báo cáo không có tên miền | Kiểm tra DNS **IPv6** của Wi-Fi: nếu còn `fe80::1` (DNS của router) thì đặt lại thành `::1` theo bước 8. Trình duyệt bật "Secure DNS" (DoH) cũng vòng qua DNS hệ thống — tắt mục đó khi kiểm tra |
+| Vào web được nhưng báo cáo không có tên miền | Kiểm tra DNS **IPv6** của Wi-Fi: nếu còn `fe80::1` (DNS của router) thì đặt lại thành `::1` theo bước 8. Trình duyệt bật "Secure DNS" (DoH): các điểm cuối DoH đã biết bị chặn theo mặc định nên trình duyệt sẽ báo lỗi phân giải — đó là hành vi đúng; muốn dùng DoH thì phụ huynh tạo luật allow đích danh cho điểm cuối đó |
+| Mất hẳn phân giải tên miền (web nào cũng không vào) sau khi Tray bị tắt | Agent **tự dừng khi mất biểu tượng Tray** (minh bạch F5.8): Tray bị tắt quá 60 giây (hoặc không hiện được icon) thì service dừng theo, DNS proxy cũng tắt — mà DNS đang trỏ về 127.0.0.1/::1 nên máy mất phân giải tên. Khôi phục: khởi động lại service (hoặc khởi động lại máy), hoặc khôi phục DNS bằng lệnh ở bước 8 nếu chưa muốn chạy agent |
 | Báo cáo "ứng dụng đã dùng" lẫn tiến trình lạ (WUDFHost, ekrn...) | Đó là dịch vụ nền chạy từ lúc mở máy; agent đã lọc theo tài khoản SYSTEM + danh sách tên — dữ liệu ghi từ các bản cũ trong cùng ngày vẫn còn, sang ngày mới sẽ sạch |
 
 ## Bước 11 — Gỡ cài đặt hoàn toàn

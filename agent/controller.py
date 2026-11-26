@@ -24,7 +24,7 @@ except ImportError:
     # import with no known parent package" — phải dùng import phẳng.
     from timekeeper import TimeKeeper
 
-from shared.contract import SYSTEM_PROCESSES
+from shared.contract import SYSTEM_PROCESSES, subject_domain
 
 WHITELIST = {
     "system", "registry", "csrss.exe", "winlogon.exe", "wininit.exe",
@@ -113,6 +113,9 @@ class AgentController:
         self._last_sync = 0.0
         self._last_error = 0.0
         self._block_notified: dict = {}  # key -> mono ts (chống spam thông báo)
+        self._was_stale = False          # trạng thái stale KT5 của lượt kiểm trước
+        self._web_notified: dict = {}    # subject_domain -> mono ts (toast chặn web)
+        self._last_web_notify = 0.0      # mono ts của toast chặn web gần nhất
 
     # ------------------------------------------------------------ vòng đời
     def start(self):
@@ -141,6 +144,45 @@ class AgentController:
         except Exception:
             pass
 
+    # ------------------------------------------------------------ sự kiện DNS
+    def handle_dns_event(self, type_: str, subject: str = "") -> None:
+        """Điểm vào duy nhất cho sự kiện từ DNS proxy (cả v4 lẫn v6).
+
+        Ghi sự kiện như cũ (subject rút về tên miền cấp hai); riêng
+        blocked_domain thì kèm thông báo GIẢI THÍCH xuống tray (NT4): trình
+        duyệt chỉ hiện lỗi DNS chung chung, không có lời giải thích là trẻ
+        tưởng mạng hỏng. Chống spam ở tầng controller (dùng chung cho cả hai
+        proxy): mỗi subject tối đa 1 toast/60s và tối thiểu 10s giữa hai
+        toast bất kỳ. Lỗi ở bước thông báo không bao giờ được làm hỏng DNS.
+        """
+        subj = subject_domain(subject)
+        self._emit(type_, subj)
+        if type_ != "blocked_domain" or not subj:
+            return
+        try:
+            now = time.monotonic()
+            if now - self._web_notified.get(subj, -1e18) < 60:
+                return
+            if now - self._last_web_notify < 10:
+                return
+            self._web_notified[subj] = now
+            self._last_web_notify = now
+            _decision, reason = self.pm.web_decision_detail(subject)
+            if reason == "rule_block":
+                why = "phụ huynh đã đặt luật chặn riêng cho trang này"
+            elif reason == "doh_endpoint":
+                why = ("đây là dịch vụ DNS bảo mật (DoH) — trình duyệt dùng nó "
+                       "sẽ đi vòng qua bộ lọc của OpenGuard Kids")
+            else:
+                why = "trang thuộc nhóm nội dung phụ huynh chọn chặn"
+            text = (f"Trang {subj} bị chặn vì {why}. "
+                    f"Luật do phụ huynh đặt (chính sách phiên bản {self.pm.version()}). "
+                    "Nếu con cho rằng bị chặn nhầm, hãy bấm nút 'Báo chặn nhầm' "
+                    "trong cửa sổ OpenGuard Kids ở khay hệ thống để xin phụ huynh xem lại.")
+            self.on_notify({"kind": "blocked_domain", "subject": subj, "text": text})
+        except Exception:
+            pass
+
     def _on_warning(self, remaining_sec: int, stage: int) -> None:
         if stage == 0:
             text = ("Đã hết giờ hôm nay — con có 1 phút ân hạn để lưu bài, "
@@ -162,10 +204,12 @@ class AgentController:
                         "text": texts.get(reason, "Máy đã bị khóa.")})
 
     def _on_alert(self, kind: str, detail: dict) -> None:
+        # send_alert trả False khi mất mạng (không ném lỗi): chỉ coi là đã
+        # gửi khi trả True, còn lại xếp hàng bền để xả ở lần sync sau.
         if self.client is not None:
             try:
-                self.client.send_alert(kind, detail)
-                return
+                if self.client.send_alert(kind, detail):
+                    return
             except Exception:
                 pass
         try:  # offline: giữ lại trong hàng đợi cục bộ để gửi sau qua events? -> kv
@@ -176,11 +220,36 @@ class AgentController:
         except Exception:
             pass
 
+    def _check_stale_transition(self) -> None:
+        """Vào/ra trạng thái stale (KT5): báo phụ huynh qua kênh alert và báo
+        trẻ qua tray, đúng một lần mỗi chiều chuyển."""
+        stale = self.keeper.policy_stale()
+        if stale == self._was_stale:
+            return
+        self._was_stale = stale
+        days = round(self.keeper.offline_seconds() / 86400, 1)
+        if stale:
+            self._on_alert("policy_stale", {"offline_days": days})
+            self.on_notify({"kind": "info", "text": (
+                f"Máy đã mất kết nối với máy chủ của bố mẹ hơn 7 ngày "
+                f"({days} ngày). Giới hạn giờ và lịch tạm mở cho con dùng, "
+                "nhưng các trang web và ứng dụng bị chặn vẫn bị chặn như cũ. "
+                "Con nói bố mẹ kiểm tra kết nối giúp nhé.")})
+        else:
+            self._on_alert("policy_fresh", {"offline_days": days})
+            self.on_notify({"kind": "info", "text": (
+                "Máy đã kết nối lại với máy chủ của bố mẹ — giới hạn giờ và "
+                "lịch hoạt động bình thường trở lại.")})
+
     # ------------------------------------------------------------ vòng lặp
     def _loop(self):
         while not self._stop.is_set():
             try:
                 self.keeper.tick()
+            except Exception:
+                pass
+            try:
+                self._check_stale_transition()
             except Exception:
                 pass
             now = time.monotonic()
@@ -283,7 +352,10 @@ class AgentController:
             used = float(self.store.kv_get(key, 0) or 0) + dt_scan
             self.store.kv_set(key, used)
             budget = budgets.get(category)
-            if budget is not None and used > float(budget) * 60:
+            # KT5: khi stale, ngân sách nhóm (phần thời gian) cũng fail-open
+            # như quota/lịch; luật chặn app đích danh vẫn thi hành ở dưới.
+            if budget is not None and used > float(budget) * 60 \
+                    and not self.keeper.policy_stale():
                 for exe, info, _rule in members:
                     self._block(exe, info, "category_cap",
                                 f"Nhóm '{category}' đã hết ngân sách {budget} phút hôm nay")
@@ -391,14 +463,23 @@ class AgentController:
         result = {"online": False}
         if self.client is None:
             return result
-        # cảnh báo hệ thống đang chờ (vd chỉnh giờ khi mất mạng)
+        # cảnh báo hệ thống đang chờ (vd chỉnh giờ khi mất mạng) — chỉ xóa
+        # những cảnh báo đã gửi THẬT (send_alert trả True), giữ lại phần lỗi
         try:
             raw = self.store.kv_get("pending_alerts", "[]")
             pending = json.loads(raw) if isinstance(raw, str) else []
+            remaining = []
             for item in pending:
-                self.client.send_alert(item.get("kind", "alert"), item.get("detail", {}))
+                sent = False
+                try:
+                    sent = bool(self.client.send_alert(
+                        item.get("kind", "alert"), item.get("detail", {})))
+                except Exception:
+                    sent = False
+                if not sent:
+                    remaining.append(item)
             if pending:
-                self.store.kv_set("pending_alerts", "[]")
+                self.store.kv_set("pending_alerts", json.dumps(remaining[-20:]))
         except Exception:
             pass
         status = self.keeper.status()
@@ -410,6 +491,7 @@ class AgentController:
         if not isinstance(resp, dict):
             return result
         result["online"] = True
+        self.keeper.reset_offline()  # đồng bộ thành công -> xóa bộ đếm KT5
         if resp.get("server_time"):
             self.keeper.set_server_anchor(float(resp["server_time"]))
         for cmd in resp.get("pending_commands", []) or []:

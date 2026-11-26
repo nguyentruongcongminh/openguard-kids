@@ -25,7 +25,9 @@ và server từ chối mọi trường nằm ngoài danh sách này).
 | Access/refresh token của thiết bị (chỉ lưu băm) | Server | Xác thực agent, thu hồi khi gỡ thiết bị | Access 15 phút; refresh tới khi thu hồi | Không ai |
 | Khóa HMAC của policy (mã hóa AES-GCM phía server) | Server | Ký tài liệu chính sách để agent chống giả mạo | Tới khi thu hồi thiết bị | Không ai |
 | Nội dung chính sách (quota, lịch, luật app/web) | Dashboard | Cấu hình mà agent thi hành; hiển thị lại cho trẻ qua Tray | Tới khi sửa/xóa | Phụ huynh, trẻ |
-| Nhật ký kiểm toán: actor, thời gian, IP, giá trị cũ/mới | Server | Mọi thay đổi đều giải thích được (NT4); trẻ có quyền xem (NT5) | 90 ngày | Phụ huynh, trẻ (chỉ phần liên quan tới mình) |
+| Nhật ký kiểm toán: actor, thời gian, IP, giá trị cũ/mới | Server | Mọi thay đổi đều giải thích được (NT4); trẻ có quyền xem (NT5) — phía trẻ thấy cả giá trị cũ/mới nhưng IP đã che một phần (vd `113.161.x.x`). Lưu ý: nhật ký gắn với TÀI KHOẢN phụ huynh, không tách theo từng trẻ — trẻ xem được cả thay đổi áp cho anh/chị/em dùng chung tài khoản đó | 90 ngày | Phụ huynh, trẻ (nhật ký của tài khoản phụ huynh) |
+| `received_at` (mốc server nhận sự kiện) | Server | Chẩn đoán độ trễ đồng bộ ngoại tuyến; không hiển thị trong báo cáo | 90 ngày (theo sự kiện) | Hệ thống |
+| Truy vấn DNS **được phép** (chỉ tên miền) + truy vấn dò SafeSearch | Agent (DNS proxy tại máy trẻ) | Chuyển tiếp tới **upstream resolver đã cấu hình (mặc định Google Public DNS, 8.8.8.8)** để phân giải — đây là hạ tầng phân giải bắt buộc của DNS, không phải kênh chia sẻ dữ liệu trẻ. Upstream chỉ thấy tên miền được phép và IP công cộng của mạng nhà; **không** nhận danh tính trẻ, `device_id` hay token. Miền bị chặn **không bao giờ được chuyển tiếp** (trả NXDOMAIN ngay tại máy). Đổi upstream bằng khóa `upstream_dns` trong cấu hình agent | Theo chính sách lưu trữ của nhà cung cấp upstream — OGK không kiểm soát | Nhà cung cấp upstream (chỉ với dữ liệu ở cột 1) |
 | Bộ đếm cục bộ: used_seconds, ngân sách nhóm, cờ cảnh báo | Agent (SQLite tại máy trẻ) | Đếm giờ ngoại tuyến, cảnh báo đúng mốc, không mất khi khởi động lại | Theo ngày (tự lăn sang ngày mới); sự kiện cục bộ đã gửi giữ 90 ngày cho màn hình của trẻ | Trẻ, phụ huynh (qua đồng bộ) |
 
 ## Dữ liệu KHÔNG bao giờ thu thập (danh mục cấm của đề)
@@ -33,8 +35,11 @@ và server từ chối mọi trường nằm ngoài danh sách này).
 - Nội dung tin nhắn, email, tài liệu của trẻ.
 - URL đầy đủ, tiêu đề cửa sổ, nội dung gõ phím, ảnh chụp màn hình.
 - Vị trí, danh bạ, tập tin cá nhân.
-- Không gửi bất kỳ dữ liệu nào tới dịch vụ bên thứ ba — chỉ có OGK-Server của
-  gia đình/trường trong mạng LAN hoặc VPS lab.
+- Không gửi bất kỳ dữ liệu nào của trẻ tới dịch vụ bên thứ ba — dữ liệu trẻ
+  chỉ tới OGK-Server của gia đình/trường trong mạng LAN hoặc VPS lab.
+  Ngoại lệ duy nhất, đã khai ở bảng trên: truy vấn DNS *được phép* được
+  DNS proxy chuyển tiếp tới upstream resolver (mặc định Google Public
+  DNS) để phân giải tên miền — hạ tầng bắt buộc của giao thức DNS.
 
 ## Quyền xóa
 

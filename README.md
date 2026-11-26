@@ -187,7 +187,7 @@ Administrator tại thư mục dự án trên máy trẻ, ví dụ `C:\OpenGuard
 
    ```powershell
    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-   .\scripts\install_agent.ps1
+   .\scripts\install_agent.ps1 -ChildUser <tên tài khoản Windows của trẻ>
    Get-Service OpenGuardKidsAgent   # phải là Running
    ```
 

@@ -196,10 +196,48 @@ def test_never_block_cannot_be_blocked():
     did = dev["device_id"]
     r = p.post(f"/policy/{did}/web", {"domain": "moet.gov.vn", "action": "block"})
     assert r.status_code == 400, r.text  # .gov.vn miễn chặn vĩnh viễn
+    r = p.post(f"/policy/{did}/web", {"domain": "abc.edu.vn", "action": "block"})
+    assert r.status_code == 400, r.text  # .edu.vn (cổng trường học) miễn chặn cứng
+    r = p.post(f"/policy/{did}/web", {"domain": "tongdai111.vn", "action": "block"})
+    assert r.status_code == 400, r.text  # Tổng đài 111: miền .vn, miễn chặn đích danh
     r = p.put(f"/policy/{did}/web-settings", {"never_block": ["truongbe.edu.vn"]})
     assert r.status_code == 200, r.text
     r = p.post(f"/policy/{did}/web", {"domain": "portal.truongbe.edu.vn", "action": "block"})
     assert r.status_code == 400, r.text  # cổng trường đã khai báo -> miễn chặn
+
+
+def test_access_token_expiry_enforced():
+    from datetime import datetime, timedelta
+
+    from app.models import Device, SessionLocal
+    p, child, dev = enrolled_parent()
+    c = TestClient(app)
+    h = dev_headers(dev)
+    assert c.get("/child/summary", headers=h).status_code == 200  # còn hạn -> 200
+    db = SessionLocal()
+    row = db.query(Device).filter_by(id=dev["device_id"]).first()
+    delta = (row.access_expires_at - datetime.utcnow()).total_seconds()
+    assert 895 <= delta <= 905, delta  # hạn = now + 15 phút, sai số <= 5s
+    row.access_expires_at = datetime.utcnow() - timedelta(seconds=1)
+    db.commit()
+    db.close()
+    assert c.get("/child/summary", headers=h).status_code == 401  # hết hạn -> 401
+
+
+def test_child_audit_has_old_and_masked_ip():
+    from app.main import _mask_ip
+    assert _mask_ip("113.161.20.5") == "113.161.x.x"
+    assert _mask_ip("2001:db8:aaaa:bbbb::1").startswith("2001:db8:")
+    assert _mask_ip(None) is None
+    p, child, dev = enrolled_parent()
+    did = dev["device_id"]
+    r = p.put(f"/policy/{did}/time", {"quota_weekday_min": 111})
+    assert r.status_code == 200, r.text
+    c = TestClient(app)
+    rows = c.get("/child/audit", headers=dev_headers(dev)).json()
+    upd = [a for a in rows if a["action"] == "policy.update"]
+    assert upd, rows
+    assert "old" in upd[0] and upd[0]["new"] is not None and "ip" in upd[0]
 
 
 def test_refresh_rotation_and_revoke():
@@ -255,6 +293,39 @@ def test_reports_daily_and_week():
     assert rep["blocks"] == {"blocked_app": 2, "blocked_domain": 1}
     week = p.get(f"/reports/{dev['device_id']}/week").json()
     assert len(week["days"]) == 7 and week["days"][-1]["total_app_minutes"] == 40
+
+
+def test_child_week_matches_parent_week(tmp_path):
+    """NT5: báo cáo phía TRẺ (agent tự tính từ kho sự kiện cục bộ bằng
+    _week_summary) phải khớp báo cáo phía PHỤ HUYNH (server) trên cùng một
+    dữ liệu — số lần chặn trong ngày, top ứng dụng và tổng phút ứng dụng.
+    (Phần "đã dùng/hạn mức" phía trẻ lấy từ bộ đếm quota của chính máy —
+    cũng là số server nhận qua heartbeat.)"""
+    p, child, dev = enrolled_parent()
+    now = time.time()
+    raw = [("app_stop", "game.exe", 1800), ("app_stop", "word.exe", 600),
+           ("blocked_app", "game.exe", 0), ("blocked_app", "game.exe", 0),
+           ("blocked_domain", "facebook.com", 0)]
+    assert push_events(dev, [ev(t, s, d, now) for t, s, d in raw]).status_code == 201
+    rep = p.get(f"/reports/{dev['device_id']}").json()
+    week = p.get(f"/reports/{dev['device_id']}/week").json()
+
+    from agent.local_store import LocalStore
+    from agent.policy import PolicyManager
+    from agent.timekeeper import TimeKeeper
+    import agent.service as svc
+    from shared.contract import default_policy_document
+    store = LocalStore(str(tmp_path / "agent.db"))
+    for t, s, d in raw:
+        store.queue_event(t, s, d, ts=now)
+    pm = PolicyManager(store, "")
+    pm._doc = default_policy_document(1, 1)
+    mine = svc._week_summary(store, TimeKeeper(store, pm))
+    my_today = mine["days"][-1]
+    assert my_today["blocks"] == rep["blocks"] == {"blocked_app": 2, "blocked_domain": 1}
+    assert mine["top_apps"][0] == rep["top_apps"][0] == {"app": "game.exe", "minutes": 30.0}
+    assert sum(a["minutes"] for a in mine["top_apps"]) == 40
+    assert sum(d["total_app_minutes"] for d in week["days"]) == 40
 
 
 def test_commands_via_heartbeat_and_ack():

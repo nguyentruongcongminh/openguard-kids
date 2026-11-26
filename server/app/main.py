@@ -669,9 +669,25 @@ def child_summary(dev: Device = Depends(get_current_device), db: Session = Depen
     return _daily_report(db, dev.id, datetime.now().date())
 
 
+def _mask_ip(ip):
+    """Che IP trong góc nhìn của trẻ (NT5 + F4.4): trẻ đối chiếu được "thay
+    đổi đến từ mạng nào" (IPv4 giữ 2 octet đầu, IPv6 giữ /32) mà không lộ
+    địa chỉ đầy đủ của phụ huynh."""
+    if not ip:
+        return None
+    if ":" in ip:
+        parts = ip.split(":")
+        return ":".join(parts[:2]) + "::…"
+    parts = ip.split(".")
+    if len(parts) == 4:
+        return f"{parts[0]}.{parts[1]}.x.x"
+    return ip
+
+
 @app.get("/child/audit")
 def child_audit(dev: Device = Depends(get_current_device), db: Session = Depends(get_db)):
-    """Trẻ xem được nhật ký thay đổi luật của phụ huynh (NT5/F4)."""
+    """Trẻ xem được nhật ký thay đổi luật của phụ huynh (NT5/F4): cả giá trị
+    cũ và mới; IP đã che một phần (xem _mask_ip)."""
     rows = (db.query(AuditLog)
             .filter(AuditLog.parent_id == dev.child.parent_id,
                     AuditLog.action.like("policy.%"))
@@ -685,7 +701,8 @@ def child_audit(dev: Device = Depends(get_current_device), db: Session = Depends
         if a.id in seen:
             continue
         seen.add(a.id)
-        out.append({"actor": a.actor, "action": a.action, "new": a.new,
+        out.append({"actor": a.actor, "action": a.action, "old": a.old,
+                    "new": a.new, "ip": _mask_ip(a.ip),
                     "ts": a.ts.isoformat() if a.ts else None})
     return out
 

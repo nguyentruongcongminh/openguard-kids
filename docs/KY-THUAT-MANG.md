@@ -77,9 +77,10 @@ bị phải ghép đôi lại.
   phát hành/khóa thì bất biến.
 - **Mất server không làm trẻ bị khóa oan vô hạn**: agent tiếp tục áp chính
   sách đã lưu tại máy; chính sách ngoại tuyến có hạn tin cậy 7 ngày theo cơ
-  chế fail-closed có kiểm soát đã duyệt trong kiến trúc (sau 7 ngày không
-  liên lạc được server, chuyển fail-open có ghi nhật ký để trẻ không bị
-  khóa khỏi máy phục vụ học tập vô thời hạn).
+  chế đã duyệt trong kiến trúc — sau 7 ngày không liên lạc được server thì
+  **fail-open phần thời gian** (ngừng khóa theo quota/lịch/ngân sách nhóm,
+  có ghi nhật ký và cảnh báo phụ huynh) để trẻ không bị khóa khỏi máy phục
+  vụ học tập vô thời hạn; chặn web và chặn ứng dụng vẫn giữ nguyên.
 
 ## 4. Thời gian tin cậy (chống trẻ chỉnh đồng hồ)
 
@@ -118,8 +119,13 @@ hai chiều là yêu cầu bất biến của dự án. Truy vấn ngược (PTR
 ### 5.3. Giới hạn đã biết
 
 - **DNS-over-HTTPS (DoH)** trong trình duyệt có thể vòng qua DNS hệ thống.
-  Giảm thiểu: tắt "Secure DNS" trong cài đặt trình duyệt của trẻ; về lâu
-  dài có thể chặn thêm các endpoint DoH phổ biến ở tầng luật web.
+  Từ vòng sửa 11/2026: các điểm cuối DoH đã biết (Google, Cloudflare,
+  Quad9, AdGuard, NextDNS, 1.1.1.1 và miền canary của Firefox) bị **chặn
+  theo mặc định** ở tầng luật web; phụ huynh vẫn cho phép đích danh được
+  bằng luật allow. Giới hạn còn lại: DoH gọi thẳng địa chỉ IP
+  (`https://1.1.1.1/dns-query`) không qua phân giải tên nên DNS proxy
+  không chặn được — ghi nhận minh bạch, giảm thiểu thêm bằng cách tắt
+  "Secure DNS" trong cài đặt trình duyệt của trẻ.
 - Ứng dụng dùng địa chỉ IP cứng hoặc DNS riêng tự nhúng vẫn thoát khỏi bộ
   lọc DNS — đây là giới hạn chung của mọi giải pháp lọc tại DNS, được ghi
   nhận minh bạch thay vì che giấu.

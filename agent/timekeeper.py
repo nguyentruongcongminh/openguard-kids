@@ -119,6 +119,42 @@ class TimeKeeper:
             self.store.kv_set("last_seen_date", today.isoformat())
         return today
 
+    # ------------------------------------------------------------ mất kết nối (KT5)
+    STALE_AFTER_SEC = 7 * 86400  # mốc 7 ngày theo quyết định KT5 (tài liệu kiến trúc §3.1)
+
+    def offline_seconds(self) -> float:
+        """Tổng thời gian chưa đồng bộ thành công, cộng dồn chống chỉnh giờ."""
+        return _f(self.store.kv_get("offline_elapsed_sec", 0))
+
+    def policy_stale(self) -> bool:
+        return self.offline_seconds() > self.STALE_AFTER_SEC
+
+    def reset_offline(self) -> None:
+        self.store.kv_set("offline_elapsed_sec", 0.0)
+
+    def _accumulate_offline(self, mono_now: float, wall_now: float) -> None:
+        """Cộng dồn thời gian mất kết nối — phải chạy TRƯỚC khi _last_* bị ghi đè.
+
+        - Trong phiên chạy: cộng min(Δgiờ tường, Δmonotonic) mỗi tick, nên
+          chỉnh đồng hồ tiến +8 ngày lúc máy đang chạy cũng chỉ cộng theo
+          thời gian monotonic thật (không lách được mốc 7 ngày).
+        - Qua reboot: cộng khoảng giờ tường kể từ tick cuối đã lưu (nếu >= 0).
+        - Máy nâng cấp chưa có khóa này: bắt đầu từ 0, không stale oan.
+        Đặt lại 0 khi đồng bộ thành công (controller gọi reset_offline).
+        """
+        elapsed = _f(self.store.kv_get("offline_elapsed_sec", 0))
+        if self._last_mono is not None and self._last_wall is not None:
+            elapsed += min(max(wall_now - self._last_wall, 0.0),
+                           max(mono_now - self._last_mono, 0.0))
+        else:
+            last_wall = self.store.kv_get("last_tick_wall")
+            if last_wall is not None:
+                gap = wall_now - _f(last_wall)
+                if gap > 0:
+                    elapsed += gap
+        self.store.kv_set("offline_elapsed_sec", elapsed)
+        self.store.kv_set("last_tick_wall", wall_now)
+
     # ------------------------------------------------------------ trạng thái
     def _key(self, prefix: str, day: date) -> str:
         return f"{prefix}_{day.isoformat()}"
@@ -162,6 +198,8 @@ class TimeKeeper:
             "paused_today": self.is_paused(day),
             "break_left_sec": int(self.break_left()),
             "policy_version": self.pm.version(),
+            "offline_days": round(self.offline_seconds() / 86400, 1),
+            "policy_stale": self.policy_stale(),
         }
 
     # ------------------------------------------------------------ sự kiện phụ
@@ -216,6 +254,7 @@ class TimeKeeper:
                             except Exception:
                                 pass
                         fired.append("clock_tamper")
+        self._accumulate_offline(mono_now, wall_now)
         self._last_mono = mono_now
         self._last_wall = wall_now
 
@@ -229,6 +268,14 @@ class TimeKeeper:
             self.store.kv_set(self._key("used_seconds", day), total)
 
         if self.override_left() > 0:
+            return fired
+
+        # --- KT5: mất kết nối quá 7 ngày -> fail-open PHẦN THỜI GIAN: không
+        # khóa theo lịch/quota nữa (tránh khóa trẻ khỏi máy học tập vô thời
+        # hạn vì lỗi hạ tầng) nhưng vẫn ĐẾM giờ như thường; chặn web (nhóm,
+        # đích danh, DoH, SafeSearch) và luật chặn app vẫn giữ — các đường đó
+        # không đi qua tick này. Thoát stale thì cảnh báo/ân hạn chạy lại.
+        if self.policy_stale():
             return fired
 
         # --- lịch tuần 7x48: ngoài khung giờ cho phép -> khóa ngay

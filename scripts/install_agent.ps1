@@ -2,7 +2,9 @@
 # Chay PowerShell voi quyen Administrator tren MAY CUA TRE.
 # Viec script nay lam (cong khai, dung muc F5 cua de):
 #   1. Tao thu muc C:\ProgramData\OpenGuardKids va dat ACL chi SYSTEM +
-#      Administrators duoc ghi (tai khoan cua tre chi doc de Tray ket noi IPC).
+#      Administrators (chua config.json co bi mat thiet bi va CSDL). Rieng
+#      thu muc con tray\ (chi chua tray.json: cong IPC + token IPC + ten tre)
+#      cap Users quyen doc de Tray chay bang tai khoan tre ket noi duoc IPC.
 #   2. Cai Windows Service OpenGuardKidsAgent bang WinSW (tools\
 #      ogk-service-host.exe): service chay agent o che do console bang
 #      Python cua .venv, tu khoi dong cung Windows, tu chay lai khi loi.
@@ -21,13 +23,48 @@
 # .ps1 khong co BOM theo bang ma ANSI, dau tieng Viet/dau gach dai (em dash)
 # se bien thanh dau ngoac kep la va lam vo cu phap. Khong them dau vao file nay.
 
+param([string]$ChildUser = "")
+
 $ErrorActionPreference = "Stop"
 $dir = "$env:ProgramData\OpenGuardKids"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
-# --- 1. ACL: SYSTEM + Administrators toan quyen ghi; Users chi doc/thuc thi
-icacls $dir /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" "Users:(OI)(CI)RX" | Out-Null
-Write-Host "ACL da ap cho $dir (SYSTEM/Administrators ghi, Users chi doc)."
+# --- 1. ACL (dung SID de khong phu thuoc ngon ngu Windows):
+# Thu muc du lieu: chi SYSTEM (*S-1-5-18) + Administrators (*S-1-5-32-544).
+# /remove:g go han ACE cua Users (*S-1-5-32-545) ma cac ban cai truoc da cap.
+icacls $dir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /remove:g "*S-1-5-32-545" | Out-Null
+# Thu muc con tray\: Users duoc doc (tray.json khong chua bi mat thiet bi).
+$trayDir = Join-Path $dir "tray"
+New-Item -ItemType Directory -Force -Path $trayDir | Out-Null
+icacls $trayDir /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)R" | Out-Null
+Write-Host "ACL da ap: $dir chi SYSTEM/Administrators; $trayDir Users duoc doc."
+
+# --- 1b. Tai khoan Windows cua tre (cho watchdog WTS - F5.8):
+# Service chi coi la "co phien" khi DUNG tai khoan nay dang dang nhap
+# (trang thai WTS), nen: luc cai bang tai khoan admin agent khong tu
+# dung oan; tre tat explorer.exe cung khong lach duoc watchdog.
+# Cach dung: install_agent.ps1 -ChildUser <ten tai khoan cua tre>
+if ($ChildUser -ne "") {
+    $lu = Get-LocalUser -Name $ChildUser -ErrorAction SilentlyContinue
+    if ($null -eq $lu) { throw "Khong thay tai khoan Windows '$ChildUser' tren may nay." }
+    $adminGroup = Get-LocalGroup -SID "S-1-5-32-544"
+    $members = Get-LocalGroupMember -Group $adminGroup -ErrorAction SilentlyContinue
+    if ($members | Where-Object { $_.Name -like "*\$ChildUser" }) {
+        Write-Warning "Tai khoan '$ChildUser' la Administrator - nen dung tai khoan Standard cho tre."
+    }
+    $cfgPath = Join-Path $dir "config.json"
+    if (Test-Path $cfgPath) {
+        $cfg = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $cfg | Add-Member -NotePropertyName child_windows_user -NotePropertyValue $ChildUser -Force
+        $jsonOut = $cfg | ConvertTo-Json -Depth 10
+        [System.IO.File]::WriteAllText($cfgPath, $jsonOut, (New-Object System.Text.UTF8Encoding $false))
+        Write-Host "Da ghi child_windows_user = $ChildUser vao config.json."
+    } else {
+        throw "Chua co config.json (chua enroll) - hay chay enroll o Buoc 4 truoc, roi chay lai script nay voi -ChildUser."
+    }
+} else {
+    throw "Thieu tham so -ChildUser. Hay chay lai: install_agent.ps1 -ChildUser <ten tai khoan Windows cua tre> (xem ten bang lenh Get-LocalUser, hoac chay whoami trong phien dang nhap cua tre; voi tai khoan Microsoft, ten tai khoan cuc bo khac ten hien thi). Thieu khoa nay, watchdog khong phan biet duoc phien cua tre voi phien admin va agent co the tu dung oan ngay sau khi cai."
+}
 
 # --- 2. Cai service bang WinSW
 # Yeu cau: da chay enroll.py thanh cong truoc (co config.json trong

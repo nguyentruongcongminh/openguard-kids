@@ -40,7 +40,7 @@ Trạng thái: ✅ Đạt · 🟡 Một phần · ❌ Chưa có · 💥 Có code
 - Heartbeat 60s mang trạng thái + quota đã dùng + policy_version; lệch phiên bản mới tải policy: 🟡 (có nhịp 60s nhưng gửi payload rỗng, server trả toàn bộ policy mỗi lần, không có khái niệm version)
 - Lệnh khẩn WebSocket (khóa ngay / mở khóa / +15 phút) trễ < 5s: 💥 L3 (và chưa có lệnh *mở khóa*)
 - Ngoại tuyến: đệm sự kiện + đồng bộ theo lô có idempotency key chống đếm trùng: 🟡 (có hàng đợi + gửi lô, nhưng **không có idempotency key** — mất phản hồi là gửi trùng)
-- Chính sách hết hạn khi mất kết nối dài ngày (fail-open/fail-closed): ❌ — cần nhóm quyết định (mục 4.1)
+- Chính sách hết hạn khi mất kết nối dài ngày (fail-open/fail-closed): ✅ — đã chốt và đã thi công (mục 3.1): fail-closed 7 ngày, sau đó fail-open phần thời gian
 
 **F1 — Quản lý thời gian**
 - Quota ngày, cấu hình riêng ngày thường / cuối tuần: 🟡 (có quota ngày, **chưa tách thường/cuối tuần**)
@@ -116,7 +116,7 @@ Trạng thái: ✅ Đạt · 🟡 Một phần · ❌ Chưa có · 💥 Có code
 }
 ```
 
-- Danh sách **miễn chặn vĩnh viễn** (NT6) không nằm trong policy — nó được *đóng cứng trong agent* và thắng mọi luật: cổng thông tin trường (danh sách cấu hình lúc cài đặt theo trường của trẻ), các miền/tên miền dịch vụ của Tổng đài 111 và cứu hộ khẩn cấp; policy dù ghi "block" cũng bị agent bỏ qua đối với các miền này, đồng thời ghi sự kiện cảnh báo về server.
+- Danh sách **miễn chặn vĩnh viễn** (NT6) không nằm trong policy — nó được *đóng cứng trong `shared/contract.py`* và thắng mọi luật: miền nhà nước `.gov.vn`, miền giáo dục `.edu.vn`, website chính thức của Tổng đài 111 `tongdai111.vn` (miền .vn, không thuộc .gov.vn — đã xác minh), cộng danh sách cổng trường phụ huynh khai thêm trong policy; policy dù ghi "block" cũng bị agent bỏ qua đối với các miền này. Hệ quả cần nói rõ khi vấn đáp: **phụ huynh không chặn được bất kỳ miền `.edu.vn` nào** — server từ chối tạo luật chặn cho các miền miễn chặn cứng (HTTP 400).
 - Phân loại miền: server giữ bảng `domain_categories` (≥ 200 mục, 6 nhóm, kèm bộ dữ liệu kiểm thử 60 miền theo phụ lục của đề — chỉ dùng miền công khai/trung tính) và gửi xuống agent *bản rút gọn chỉ gồm các miền bị chặn theo category_policy* trong policy document; agent không cần biết toàn bộ bảng.
 
 ### 2.3. Server (FastAPI + SQLite WAL)
@@ -151,7 +151,7 @@ Giữ cấu trúc file hiện tại, sửa/nâng cấp theo module:
 | `policy.py` (mới) | Lớp dùng chung duy nhất: nạp policy document, **kiểm HMAC**, kiểm version, cấp phát cho timekeeper/controller/dns cùng một bản đã chuẩn hóa — chấm dứt tình trạng mỗi module đọc một khóa khác nhau |
 | `timekeeper.py` | Nâng cấp: quota theo thứ (thường/cuối tuần); **lịch 7×48** — ngoài khung cho phép thì khóa máy (kiểm mỗi 5s, đạt yêu cầu "khóa trong 5 giây"); cảnh báo tại **10/5/1 phút** (mỗi mốc một lần, qua pipe cho Tray hiện cửa sổ); **ân hạn 60s** sau khi hết quota rồi mới khóa; **chống chỉnh giờ**: so độ lệch giữa đồng hồ hệ thống và nhịp monotonic + mốc thời gian server trả trong heartbeat — lùi giờ > 120s thì ghi sự kiện `clock_tamper` (nằm ngoài tập type của §F3 nên mã hóa thành sự kiện hệ thống riêng phía agent→server audit, không lẫn vào báo cáo của trẻ), ngày hiệu lực **không bao giờ đi lùi** (lưu `last_seen_date`, ngày mới = max(hôm nay, last_seen_date) cho tới khi server xác nhận) |
 | `controller.py` | Nhận diện ứng dụng: lấy đường dẫn exe qua psutil → tính **SHA-256** (cache theo path+mtime) → khớp luật theo hash trước, theo tên sau (đạt test đổi tên notepad); khi chặn: kết thúc tiến trình + gửi qua pipe cho Tray **cửa sổ giải thích**: ứng dụng/trang gì, vì sao bị chặn, luật do phụ huynh đặt lúc nào (NT4); theo dõi phiên ứng dụng ở foreground để phát `app_start`/`app_stop` kèm `duration_sec` (nguồn dữ liệu cho báo cáo — sửa L8); bộ đếm ngân sách theo nhóm ứng dụng được **lưu xuống SQLite** (khởi động lại không mất) |
-| `dns_proxy.py` | Giữ engine; nguồn dữ liệu chuyển sang `policy.py` (sửa L2); thêm: **SafeSearch** — trả bản ghi CNAME tới `forcesafesearch.google.com` (và tương đương Bing/DuckDuckGo) khi policy bật; ghi sự kiện `domain_query` (chỉ tên miền cấp hai, lấy mẫu gom theo phút để không phình hàng đợi) và `blocked_domain`; **miễn chặn vĩnh viễn** thắng mọi luật (NT6); miền DoH đã biết được xếp vào nhóm riêng trong bảng phân loại để phụ huynh thấy và quyết định |
+| `dns_proxy.py` | Giữ engine; nguồn dữ liệu chuyển sang `policy.py` (sửa L2); thêm: **SafeSearch** — trả bản ghi CNAME tới `forcesafesearch.google.com` (và tương đương Bing/DuckDuckGo) khi policy bật; ghi sự kiện `domain_query` (chỉ tên miền cấp hai, lấy mẫu gom theo phút để không phình hàng đợi) và `blocked_domain`; **miễn chặn vĩnh viễn** thắng mọi luật (NT6); miền DoH đã biết bị chặn theo mặc định ở tầng luật web (hằng số `DOH_ENDPOINTS` trong contract; phụ huynh cho phép đích danh được) |
 | `local_store.py` | Sự kiện có `event_id` UUID + đúng lược đồ §F3; thêm bảng `history` cục bộ (bản sao sự kiện 90 ngày phục vụ màn hình của trẻ, không bị xóa khi đồng bộ — sửa lỗi số liệu của Tray); thực thi lệnh `wipe_cache` |
 | `ipc.py` (mới) | Named pipe `\\.\pipe\OpenGuardKids` + token cục bộ sinh lúc cài đặt: kênh Service ↔ Tray cho trạng thái, cảnh báo, cửa sổ lý do, gửi yêu cầu của trẻ (thay cho việc Tray tự gọi server — sửa L6 và đúng §2.2) |
 | `tray.py` | Viết lại thành **tray icon thật** (pystray): icon luôn hiện khi agent chạy; menu/cửa sổ: đồng hồ còn lại, "Hôm nay em đã dùng gì" (từ `history` — cùng số liệu phụ huynh thấy), nút **Xin thêm giờ**, nút **Báo chặn nhầm**, xem **nhật ký thay đổi luật**; cửa sổ cảnh báo 10/5/1 phút và cửa sổ lý do khi bị chặn; nếu không tạo được tray icon → báo Service **tự dừng** (F5 chống lạm dụng) |
@@ -159,21 +159,28 @@ Giữ cấu trúc file hiện tại, sửa/nâng cấp theo module:
 
 ### 2.5. Bảo mật — đối chiếu F5
 
-Argon2id · khóa tài khoản 5 lần/15 phút · rate limit IP · cookie session 12h + hủy phía server + CSRF · TLS 1.2+ (CA tự ký cho phòng lab) + agent ghim chứng chỉ · access token thiết bị 15 phút + refresh + danh sách thu hồi · AES-GCM cho trường nhạy cảm, khóa từ biến môi trường · chống IDOR ở tầng truy vấn cho **mọi** endpoint (kèm test) · 3 vai trò parent/child-view/admin · ACL thư mục `%ProgramData%\OpenGuardKids` chỉ SYSTEM + Administrators ghi (script cài đặt áp ACL bằng `icacls`) · không chế độ ẩn, mất tray icon thì agent dừng · `PRIVACY.md` + mục "Phạm vi sử dụng hợp pháp" trong README.
+Argon2id · khóa tài khoản 5 lần/15 phút · rate limit IP · cookie session 12h + hủy phía server + CSRF · TLS 1.2+ (CA tự ký cho phòng lab) + agent ghim chứng chỉ · access token thiết bị 15 phút + refresh + danh sách thu hồi · AES-GCM cho trường nhạy cảm, khóa từ biến môi trường · chống IDOR ở tầng truy vấn cho **mọi** endpoint (kèm test) · 3 vai trò parent/child-view/admin · ACL thư mục `%ProgramData%\OpenGuardKids` chỉ SYSTEM + Administrators ghi (script cài đặt áp ACL bằng `icacls`) · không chế độ ẩn, mất tray icon thì agent dừng (trừ giới hạn ở mục 3.3) · `PRIVACY.md` + mục "Phạm vi sử dụng hợp pháp" trong README.
 
 ---
 
 ## 3. Các điểm cần nhóm chốt (để bảo vệ khi vấn đáp)
 
-### 3.1. Chính sách hết hạn khi mất kết nối dài ngày — **đề xuất: fail-closed có điều kiện**
+### 3.1. Chính sách hết hạn khi mất kết nối dài ngày — **đã duyệt: fail-closed 7 ngày, sau đó fail-open phần thời gian (đã thi công trong code)**
 - Trong **7 ngày** đầu mất kết nối: agent vẫn áp policy gần nhất (fail-closed) — an toàn cho trẻ là ưu tiên của đề (NT6).
-- Sau 7 ngày: chuyển **fail-open có kiểm soát** đối với quota/lịch (tránh khóa trẻ khỏi máy học tập vô thời hạn vì lỗi hạ tầng), nhưng **danh sách chặn theo nhóm "không phù hợp lứa tuổi" và miễn chặn NT6 vẫn giữ nguyên**, Tray hiện thông báo rõ "đang mất kết nối với bố mẹ N ngày", mọi sự kiện vẫn đệm để đồng bộ sau.
+- Sau 7 ngày (trạng thái "stale"): **fail-open phần thời gian** — ngừng khóa theo quota, lịch tuần và ngân sách nhóm; **mọi chặn nội dung vẫn giữ nguyên**: chặn web theo nhóm/luật đích danh/điểm cuối DoH/SafeSearch, luật chặn ứng dụng đích danh, miễn chặn NT6. Agent **vẫn đếm giờ và đệm sự kiện** như thường; Tray hiện thông báo rõ "đang mất kết nối với bố mẹ N ngày" (status có `offline_days`), vào/ra stale đều gửi cảnh báo `policy_stale`/`policy_fresh` cho phụ huynh. Đồng bộ thành công là thoát stale ngay; nếu lúc đó đã vượt quota thì đi đường cảnh báo + ân hạn như thường.
+- Cách tính thời gian mất kết nối chống chỉnh giờ: cộng dồn `offline_elapsed` trong SQLite theo `min(Δgiờ tường, Δmonotonic)` mỗi tick (chỉnh đồng hồ +8 ngày lúc máy đang chạy không lách được), qua reboot cộng khoảng giờ tường kể từ tick cuối đã lưu; đặt lại 0 mỗi lần đồng bộ thành công. Thi công: `TimeKeeper._accumulate_offline`/`policy_stale` (agent/timekeeper.py), cổng ngân sách nhóm ở controller, reset ở `sync_now`.
+- **Giới hạn đã biết:** nếu máy TẮT hẳn rồi bị chỉnh giờ hệ thống/BIOS +8 ngày trước khi bật lại trong lúc không có mạng, khoảng giờ tường qua reboot bị tính vào offline_elapsed nên máy vào stale ngay khi mở. Đây là đánh đổi có chủ ý (không phân biệt được "tắt máy 8 ngày thật" với "chỉnh giờ lúc tắt"), ghi nhận là giới hạn của KT5.
 - Lý do bảo vệ được: cân bằng an toàn ↔ quyền học tập; có mốc thời gian cụ thể; minh bạch với trẻ thay vì âm thầm ngừng hoạt động.
 
 ### 3.2. Các quyết định phụ (em đề xuất, nhóm có thể đổi nhanh)
 - Sự kiện `domain_query`: chỉ ghi tên miền cấp hai (đúng §F3) và gom theo (miền, phút) — đủ cho top-10 mà không phình dữ liệu (NT2).
 - Lệnh `lock_now` từ phụ huynh khóa **ngay** (≤5s theo F4); ân hạn 60s chỉ áp cho hết quota/lịch (F1) — hai tình huống khác nhau, tránh lẫn.
 - Admin role: chỉ phục vụ demo/vấn đáp (xem trạng thái hệ thống, không xem dữ liệu của trẻ) — giữ tối thiểu dữ liệu.
+
+### 3.3. Giới hạn đã biết của cơ chế minh bạch (watchdog tray, F5.8)
+- Watchdog nhận biết phiên của trẻ bằng trạng thái phiên Windows (WTS: phiên Active + đúng `child_windows_user`) và nhịp `session_pulse` của tray (chỉ lệnh này mới tính nhịp sống). Trẻ kill tray, kill explorer, tắt autostart hay tray crash giữa phiên đều bị phát hiện trong ~60–150s: agent gửi alert `tray_lost` rồi tự dừng (không chạy mù không icon).
+- **Giới hạn:** `ipc_token` nằm trong `tray.json` mà tài khoản trẻ đọc được (tray cần nó để kết nối). Một trẻ biết viết script có thể kill tray rồi tự gửi `session_pulse` giả đều đặn để watchdog không phát hiện — khi đó không có alert, không khóa giờ được (không còn tray để khóa), dù agent vẫn ghi sự kiện và lọc DNS/app như thường. Đây là giới hạn của mọi thiết kế mà tiến trình hiển thị chạy bằng chính tài khoản bị giám sát; OGK chọn minh bạch + phát hiện các đường tắt thông thường, không cam kết chống được người dùng biết lập trình ngay trên tài khoản của mình. Giảm thiểu thêm (kiểm tiến trình đầu kia của kết nối IPC) để dành cho bản sau.
+- **Giới hạn:** watchdog chỉ canh phiên của trẻ. Nếu trẻ dùng được một tài khoản Windows khác trên cùng máy (anh/chị, Guest), phiên đó không có tray và không bị khóa giờ; hoạt động DNS/ứng dụng trong phiên đó vẫn bị ghi dưới thiết bị của trẻ. Vì vậy hướng dẫn cài đặt yêu cầu: mọi tài khoản khác phải có mật khẩu mà trẻ không biết, và tắt tài khoản Guest.
 
 ---
 

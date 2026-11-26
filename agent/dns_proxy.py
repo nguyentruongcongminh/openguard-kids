@@ -14,10 +14,22 @@ import time
 SAFESEARCH_MAP = {
     "google.com": "forcesafesearch.google.com",
     "www.google.com": "forcesafesearch.google.com",
+    "google.com.vn": "forcesafesearch.google.com",
+    "www.google.com.vn": "forcesafesearch.google.com",
     "bing.com": "strict.bing.com",
     "www.bing.com": "strict.bing.com",
     "duckduckgo.com": "safe.duckduckgo.com",
     "www.duckduckgo.com": "safe.duckduckgo.com",
+    # YouTube Restricted Mode mức Strict — danh sách hostname theo tài liệu
+    # chính thức của Google (support.google.com/a/answer/6214622). Google lưu
+    # ý KHÔNG đặt CNAME cho youtube.com trần (có thể làm hỏng YouTube) nên
+    # miền trần không có ở đây. Chỉ có hiệu lực khi phụ huynh cho phép YouTube
+    # (mặc định nhóm mạng xã hội bị chặn -> NXDOMAIN thắng, kiểm chặn chạy trước).
+    "www.youtube.com": "restrict.youtube.com",
+    "m.youtube.com": "restrict.youtube.com",
+    "youtubei.googleapis.com": "restrict.youtube.com",
+    "youtube.googleapis.com": "restrict.youtube.com",
+    "www.youtube-nocookie.com": "restrict.youtube.com",
 }
 
 
@@ -109,6 +121,14 @@ def forward(query_packet, upstream=("8.8.8.8", 53), timeout=3):
         return _servfail(query_packet)
 
 
+class UpstreamSilent(Exception):
+    """Upstream không trả lời (hoặc trả gói hỏng) khi dò bản ghi SafeSearch.
+    Khác với 'có trả lời nhưng không có bản ghi loại này' (copied == 0):
+    trường hợp câm lặng phải trả SERVFAIL cho client, không trả NODATA —
+    NODATA bị Windows cache phủ định, một lần chập mạng sẽ làm Google/
+    YouTube không vào được vài phút (gợi ý review 3, F2.5)."""
+
+
 def build_safesearch_response(query_packet, upstream=("8.8.8.8", 53), timeout=3):
     """Trả CNAME sang máy chủ SafeSearch + bản ghi A/AAAA của máy chủ đó."""
     domain, qtype, qend = parse_qname(query_packet)
@@ -121,12 +141,16 @@ def build_safesearch_response(query_packet, upstream=("8.8.8.8", 53), timeout=3)
         + encode_qname(target) + struct.pack("!HH", qtype, qclass)
     raw = forward(probe, upstream, timeout)
     if len(raw) < 12:
-        return None
+        raise UpstreamSilent("upstream không trả lời")
+    if struct.unpack_from("!H", raw, 2)[0] & 0xF == 2:
+        # forward() biến timeout thành gói SERVFAIL cho chính probe:
+        # đó là "upstream câm lặng", không phải "không có bản ghi".
+        raise UpstreamSilent("upstream trả SERVFAIL")
     try:
         _, _, uqend = parse_qname(raw)
         ancount = struct.unpack_from("!H", raw, 6)[0]
     except Exception:
-        return None
+        raise UpstreamSilent("gói trả lời của upstream hỏng")
     # chép các bản ghi trả lời A/AAAA của upstream (tên trỏ về question của upstream,
     # giữ nguyên vì rdata mới là phần quan trọng; tên được thay bằng con trỏ 0xC00C
     # trỏ tới question trong gói trả lời của ta khi cần — ở đây ta dựng lại từng RR
@@ -239,10 +263,23 @@ class DnsProxy:
                 (".in-addr.arpa", ".ip6.arpa")):
             self._emit_throttled("domain_query", domain, 300)
         if qtype in (1, 28) and self.pm.safesearch_on() and _norm(domain) in SAFESEARCH_MAP:
-            resp = build_safesearch_response(data, self.upstream)
+            try:
+                resp = build_safesearch_response(data, self.upstream)
+            except UpstreamSilent:
+                # Upstream câm lặng: SERVFAIL (rcode 2) để client thử lại
+                # sau, không cache phủ định như NODATA.
+                self._send(sock, _response(data, 2), addr)
+                return
             if resp is not None:
                 self._send(sock, resp, addr)
                 return
+            # Không dựng được trả lời SafeSearch (vd upstream không có bản
+            # ghi AAAA của máy chủ SafeSearch): trả NODATA rỗng thay vì
+            # chuyển tiếp truy vấn gốc — chuyển tiếp sẽ lộ địa chỉ THẬT của
+            # Google/YouTube và vượt SafeSearch (thường là qua IPv6).
+            # Client nhận NODATA sẽ dùng họ địa chỉ còn lại (vẫn qua CNAME ép).
+            self._send(sock, _response(data, 0), addr)
+            return
         self._send(sock, forward(data, self.upstream), addr)
 
     def _emit_throttled(self, type_: str, domain: str, window: float) -> None:

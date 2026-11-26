@@ -167,6 +167,7 @@ def main():
                 break
             time.sleep(0.05)
         latency = time.time() - t0
+        print(f"  latency_ms lock_now = {latency * 1000:.0f}")
         check("Lệnh khóa khẩn qua WebSocket đến agent < 5 giây",
               got is not None and latency < 5, f"latency={latency:.2f}s got={got}")
         time.sleep(0.5)  # chờ ack REST
@@ -174,6 +175,39 @@ def main():
         row = conn.execute("SELECT status FROM commands WHERE id = ?", (cmd_id,)).fetchone()
         conn.close()
         check("Agent ack lệnh -> server ghi done", row and row[0] == "done", str(row))
+
+        # --- đo trễ mở khóa + cộng giờ: đo tới khi agent ÁP XONG lệnh (không
+        # chỉ nhận lệnh) — trạng thái keeper phải thay đổi thật.
+        t0 = time.time()
+        r = parent.call("POST", "/commands", {"device_id": device_id, "type": "unlock"})
+        assert r.status_code == 201, r.text
+        applied = False
+        while time.time() - t0 < 5:
+            if ctl.keeper.override_left() > 0:
+                applied = True
+                break
+            time.sleep(0.05)
+        latency = time.time() - t0
+        print(f"  latency_ms unlock = {latency * 1000:.0f}")
+        check("Lệnh mở khóa qua WebSocket: agent áp xong < 5 giây",
+              applied and latency < 5, f"latency={latency:.2f}s")
+
+        extra_before = ctl.keeper.extra_today()
+        t0 = time.time()
+        r = parent.call("POST", "/commands", {"device_id": device_id,
+                                              "type": "grant_extra",
+                                              "payload": {"minutes": 15}})
+        assert r.status_code == 201, r.text
+        applied = False
+        while time.time() - t0 < 5:
+            if ctl.keeper.extra_today() >= extra_before + 900:
+                applied = True
+                break
+            time.sleep(0.05)
+        latency = time.time() - t0
+        print(f"  latency_ms grant_extra = {latency * 1000:.0f}")
+        check("Lệnh cộng giờ qua WebSocket: agent áp xong (+900s) < 5 giây",
+              applied and latency < 5, f"latency={latency:.2f}s")
         stop_drain.set()
         rt["listener"].stop()
 

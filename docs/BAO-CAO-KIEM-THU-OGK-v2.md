@@ -53,11 +53,15 @@ sai fingerprint → từ chối kết nối**, ghim đúng → heartbeat OK.
 `scripts/acceptance_round3.py`
 
 - Bộ 60 miền kiểm thử (đúng cơ cấu phụ lục của đề): **0 chặn nhầm / 20 miền
-  giáo dục**; chặn **25/25 (100%)** nhóm phải chặn theo chính sách mặc định
-  6–11 tuổi (mạng xã hội 8, trò chơi 7, không phù hợp 10); 5 điểm cuối DoH có
-  trong bảng phân loại kèm ghi chú để phụ huynh quyết định.
+  giáo dục**; chặn **30/30 (100%)** nhóm phải chặn theo chính sách mặc định
+  6–11 tuổi (mạng xã hội 8, trò chơi 7, không phù hợp 10 — dùng miền MÔ
+  PHỎNG hậu tố .invalid theo đúng yêu cầu của đề, và 5 điểm cuối DoH bị
+  chặn theo mặc định từ vòng sửa 11/2026).
 - Đếm giờ bằng đồng hồ thật 10 giây: **sai số 0,20 giây** (tiêu chí đề: ≤ ±30
-  giây/giờ).
+  giây/giờ). Lưu ý cách đọc số này: 0,20 giây là **độ lệch của tick đầu**
+  (pha khởi động), không phải độ trôi tích lũy — bộ đếm cộng dồn theo
+  khoảng monotonic giữa các tick nên sai số theo giờ vẫn ≈ 0,2 giây, không
+  nhân lên thành 72 giây/giờ.
 - Quota thật 1 phút + ân hạn 10 giây → khóa ở ~70 giây.
 - Ngoài khung giờ lịch tuần → khóa trong < 5 giây.
 - PRIVACY.md đủ 8 trường sự kiện + thời hạn 90 ngày; lược đồ F3 khóa cứng

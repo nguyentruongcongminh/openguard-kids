@@ -12,14 +12,15 @@ import queue
 import sys
 import threading
 import time
+import traceback
 from pathlib import Path
 
 try:
     from .client import ServerClient  # noqa: F401  (giữ tương thích import cũ)
-    from .config import load_config
+    from .config import TRAY_INFO_PATH, load_tray_info
     from .ipc import IPCClient
 except ImportError:
-    from config import load_config
+    from config import TRAY_INFO_PATH, load_tray_info
     from ipc import IPCClient
 
 # Do idle/lock cua DUNG phien dang nhap nay de bao cho service qua IPC
@@ -84,6 +85,40 @@ def today_lines(today: dict) -> list[str]:
     return lines
 
 
+def week_lines(week: dict) -> list[str]:
+    """Báo cáo tuần cho trẻ (NT5): từng ngày đã dùng/hạn mức + tổng tuần +
+    top ứng dụng — cùng nguồn số liệu với báo cáo ngày và báo cáo phụ huynh."""
+    from datetime import date as _date
+    names = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"]
+    lines = []
+    for d in (week or {}).get("days", []):
+        try:
+            label = names[_date.fromisoformat(d["date"]).weekday()]
+        except Exception:
+            label = d.get("date", "")
+        lines.append(f"{label} {d.get('date', '')}: đã dùng "
+                     f"{fmt_minutes(d.get('used_min', 0))} / "
+                     f"hạn mức {fmt_minutes(d.get('limit_min', 0))}")
+    lines.append(f"Tổng cả tuần: {fmt_minutes((week or {}).get('total_used_min', 0))}")
+    if (week or {}).get("top_apps"):
+        lines.append("Ứng dụng dùng nhiều nhất tuần:")
+        for item in week["top_apps"]:
+            lines.append(f"  • {item['app']}: {fmt_minutes(item['minutes'])}")
+    lines.append("Bố mẹ và con đều nhìn thấy cùng báo cáo này.")
+    return lines
+
+
+def _change_summary(old, new) -> str:
+    """Tóm tắt thay đổi cũ -> mới cho nhật ký của trẻ (NT5): tối đa 3 khóa."""
+    if isinstance(old, dict) and isinstance(new, dict):
+        parts = []
+        for k in sorted(set(old) | set(new)):
+            if old.get(k) != new.get(k):
+                parts.append(f"{k}: {old.get(k)} → {new.get(k)}")
+        return "; ".join(parts[:3])
+    return ""
+
+
 def audit_lines(rows: list) -> list[str]:
     labels = {"policy.update": "thay đổi chính sách", "command.create": "gửi lệnh từ xa",
               "request.decide": "phản hồi yêu cầu của con", "consent.pairing": "ghép đôi thiết bị"}
@@ -91,7 +126,13 @@ def audit_lines(rows: list) -> list[str]:
     for r in rows or []:
         when = str(r.get("ts") or "")[:16].replace("T", " ")
         what = labels.get(r.get("action"), r.get("action"))
-        out.append(f"{when} — {r.get('actor', '')} đã {what}.")
+        line = f"{when} — {r.get('actor', '')} đã {what}."
+        summary = _change_summary(r.get("old"), r.get("new"))
+        if summary:
+            line += f" ({summary})"
+        if r.get("ip"):
+            line += f" [từ {r['ip']}]"
+        out.append(line)
     return out or ["Chưa có thay đổi nào."]
 
 
@@ -99,7 +140,7 @@ def audit_lines(rows: list) -> list[str]:
 class TrayCore:
     def __init__(self, cfg):
         self.cfg = cfg
-        self.ipc = IPCClient(cfg.get("ipc_token", ""))
+        self.ipc = IPCClient(cfg.get("ipc_token", ""), info_path=TRAY_INFO_PATH)
 
     def call(self, method, **params):
         return self.ipc.call(method, **params)
@@ -109,6 +150,9 @@ class TrayCore:
 
     def today(self):
         return self.call("get_today")
+
+    def week(self):
+        return self.call("get_week")
 
     def notifications(self):
         return self.call("get_notifications") or []
@@ -132,10 +176,127 @@ class TrayCore:
 
     def session_pulse(self, idle_sec, locked):
         try:
-            return self.call("session_pulse", idle_sec=idle_sec,
-                             locked=bool(locked))
+            return self.call("session_pulse", idle_sec=idle_sec, locked=locked)
         except Exception:
             return None
+
+
+def _lock_workstation() -> None:
+    """Khóa phiên của trẻ từ chính phiên đó (service ở session 0 gọi
+    LockWorkStation sẽ không khóa được phiên của trẻ)."""
+    try:
+        import ctypes
+        ctypes.windll.user32.LockWorkStation()
+    except Exception:
+        pass
+
+
+class Heartbeat:
+    """Nhịp sống của tray — chạy trên LUỒNG RIÊNG, tách hẳn khỏi UI
+    (review 3, CHẶN C1).
+
+    Trước đây nhịp session_pulse nằm trong poll() của mainloop Tk, mà
+    show_note lại mở hộp thoại MODAL chờ trẻ bấm OK: hộp thoại mở quá 60s
+    là đứt nhịp, watchdog tưởng tray chết và dừng agent oan; note "locked"
+    đến trong lúc hộp thoại khác đang mở cũng không khóa được máy.
+
+    Thiết kế mới:
+    - pulse_fn(): gửi session_pulse mỗi interval (đo idle/lock tại chỗ).
+    - fetch_fn(): lấy thông báo mới từ service.
+    - lock_fn(): khóa máy NGAY trong luồng này khi gặp note "locked" —
+      không chờ UI; hộp thoại "Máy bị khóa" hiện sau cũng được.
+    - display_fn(note): hiển thị thông báo. step() KHÔNG gọi trực tiếp:
+      note được đẩy vào hàng đợi nội bộ, một luồng dispatch riêng gọi
+      display_fn — nên display_fn có chặn bao lâu (hộp thoại chờ trẻ,
+      Tk bận) cũng không làm đứt nhịp (review 4, N1).
+    - alive_fn(): biểu tượng khay còn sống không; chết -> ngừng nhịp để
+      watchdog của service phát hiện tray mất (F5.8).
+    """
+
+    def __init__(self, pulse_fn, fetch_fn, lock_fn, display_fn, alive_fn,
+                 interval: float = 3.0):
+        self._pulse = pulse_fn
+        self._fetch = fetch_fn
+        self._lock = lock_fn
+        self._display = display_fn
+        self._alive = alive_fn
+        self.interval = interval
+        self._display_queue: queue.Queue = queue.Queue()
+
+    def step(self) -> bool:
+        """Một nhịp. Trả False khi biểu tượng đã chết (ngừng hẳn)."""
+        try:
+            if not self._alive():
+                return False
+        except Exception:
+            return False
+        try:
+            self._pulse()
+        except Exception:
+            pass
+        try:
+            notes = self._fetch() or []
+        except Exception:
+            notes = []
+        for note in notes:
+            if (note or {}).get("kind") == "locked":
+                try:
+                    self._lock()
+                except Exception:
+                    pass
+            self._display_queue.put(note)
+        return True
+
+    def flush_display(self) -> None:
+        """Đẩy hết note đang chờ sang display_fn (gọi từ luồng dispatch;
+        test gọi trực tiếp để kiểm đồng bộ)."""
+        while True:
+            try:
+                note = self._display_queue.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                self._display(note)
+            except Exception:
+                pass
+
+    def _dispatch(self, stop_event) -> None:
+        while not stop_event.is_set():
+            self.flush_display()
+            stop_event.wait(0.05)
+
+    def run(self, stop_event) -> None:
+        threading.Thread(target=self._dispatch, args=(stop_event,),
+                         daemon=True, name="OGK-TrayDisplay").start()
+        while not stop_event.is_set():
+            if not self.step():
+                break
+            stop_event.wait(self.interval)
+
+
+def _icon_alive(icon) -> bool:
+    """Biểu tượng khay còn sống không — qua luồng riêng của pystray.
+    pystray chỉ đặt _thread SAU khi tạo xong cửa sổ khay, nên lúc mới
+    khởi động _thread có thể chưa có: hàm này trả False và nơi gọi phải
+    CHỜ (xem _wait_for_icon), không được kết luận icon chết ngay —
+    kết luận vội là heartbeat ngừng vĩnh viễn và agent dừng oan (N2)."""
+    try:
+        thread = getattr(icon, "_thread", None)
+        return bool(thread is not None and thread.is_alive())
+    except Exception:
+        return False
+
+
+def _wait_for_icon(icon, timeout: float = 10.0, interval: float = 0.1) -> bool:
+    """Chờ biểu tượng khay sẵn sàng (tối đa timeout giây). Máy chậm lúc
+    đăng nhập có thể cần vài giây; quá hạn mà chưa lên thì coi là lỗi
+    thật (tray_ready(False) -> agent tự dừng theo F5.8)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _icon_alive(icon):
+            return True
+        time.sleep(interval)
+    return _icon_alive(icon)
 
 
 def _make_icon_image():
@@ -152,11 +313,11 @@ def _make_icon_image():
 
 # ------------------------------------------------------------------ giao diện
 def run_tray() -> int:
-    cfg = load_config()
+    cfg = load_tray_info()
     core = TrayCore(cfg)
     child_name = cfg.get("child_name") or "bạn nhỏ"
 
-    if not cfg.get("access_token"):
+    if not cfg.get("paired"):
         import tkinter as tk
         from tkinter import ttk
         root = tk.Tk()
@@ -175,7 +336,7 @@ def run_tray() -> int:
         return 1
 
     import tkinter as tk
-    from tkinter import messagebox, ttk
+    from tkinter import ttk
 
     root = tk.Tk()
     root.withdraw()
@@ -189,6 +350,38 @@ def run_tray() -> int:
         win.minsize(430, 320)
         build(win)
         win.lift()
+        return win
+
+    note_windows: dict = {}
+
+    def show_message(title, text, key=None):
+        """Thông báo KHÔNG chặn (non-modal): cửa sổ thường + nút Đóng.
+        Tuyệt đối không dùng messagebox ở tray — hộp thoại modal chờ bấm
+        OK từng làm đứt nhịp sống của tray (CHẶN C1, review 3).
+        Cùng một key thì TÁI DÙNG cửa sổ đang mở (chỉ cập nhật nội dung):
+        note "locked" lặp mỗi 60s mà mỗi lần mở một cửa sổ mới thì sau
+        một giờ khóa máy có ~60 cửa sổ chồng nhau (gợi ý G2, review 4)."""
+        key = key or title
+        existing = note_windows.get(key)
+        if existing is not None:
+            win, label = existing
+            try:
+                if win.winfo_exists():
+                    label.config(text=text)
+                    win.lift()
+                    return win
+            except Exception:
+                pass
+
+        def build(win):
+            label = ttk.Label(win, text=text, padding=(16, 14), wraplength=400,
+                              justify="left")
+            label.pack(anchor="w")
+            ttk.Button(win, text="Đã hiểu", command=win.destroy).pack(
+                anchor="e", padx=14, pady=(0, 12))
+            note_windows[key] = (win, label)
+        win = window(title, build)
+        win.minsize(380, 140)
         return win
 
     def show_status():
@@ -218,6 +411,17 @@ def run_tray() -> int:
                           justify="left").pack(anchor="w")
         window("Hôm nay em đã dùng gì", build)
 
+    def show_week():
+        def build(win):
+            try:
+                lines = week_lines(core.week())
+            except Exception:
+                lines = ["Chưa kết nối được với dịch vụ OpenGuard Kids."]
+            for line in lines:
+                ttk.Label(win, text=line, padding=(16, 3), wraplength=420,
+                          justify="left").pack(anchor="w")
+        window("Tuần này em đã dùng gì", build)
+
     def ask_extra():
         def build(win):
             minutes_var = tk.StringVar(value="15")
@@ -235,7 +439,7 @@ def run_tray() -> int:
                 except Exception:
                     msg = "Chưa gửi được — dịch vụ agent chưa chạy?"
                 win.destroy()
-                messagebox.showinfo("Xin thêm giờ", msg)
+                show_message("Xin thêm giờ", msg)
             ttk.Button(win, text="Gửi yêu cầu", command=send).grid(
                 row=2, column=0, columnspan=2, sticky="ew", padx=14, pady=12)
         window("Xin thêm giờ", build)
@@ -253,7 +457,7 @@ def run_tray() -> int:
             def send():
                 subject = entry_subject.get().strip()
                 if not subject:
-                    messagebox.showwarning("Báo chặn nhầm", "Con hãy nhập tên ứng dụng hoặc trang web.")
+                    show_message("Báo chặn nhầm", "Con hãy nhập tên ứng dụng hoặc trang web.")
                     return
                 try:
                     res = core.send_false_block(subject, entry_reason.get().strip())
@@ -262,7 +466,7 @@ def run_tray() -> int:
                 except Exception:
                     msg = "Chưa gửi được — dịch vụ agent chưa chạy?"
                 win.destroy()
-                messagebox.showinfo("Báo chặn nhầm", msg)
+                show_message("Báo chặn nhầm", msg)
             ttk.Button(win, text="Gửi báo cáo", command=send).grid(
                 row=2, column=0, columnspan=2, sticky="ew", padx=14, pady=12)
         window("Con nghĩ bị chặn nhầm", build)
@@ -279,16 +483,10 @@ def run_tray() -> int:
         window("Nhật ký thay đổi luật của phụ huynh", build)
 
     def show_note(note):
+        # CHỈ hiển thị — việc khóa máy khi note "locked" đã do luồng
+        # Heartbeat làm ngay khi nhận note (không chờ UI). Hộp thoại ở
+        # đây là cửa sổ thường, không chặn mainloop và không chặn nhịp.
         kind = note.get("kind")
-        if kind == "locked":
-            # Service o session 0 goi LockWorkStation se khong khoa duoc
-            # phien cua tre; Tray dang o dung phien do nen khoa thay ngay
-            # khi nhan thong bao khoa (quota/lich/tu xa deu qua duong nay).
-            try:
-                import ctypes
-                ctypes.windll.user32.LockWorkStation()
-            except Exception:
-                pass
         if note.get("subject"):
             last_block_subject["value"] = note["subject"]
         titles = {"warning": "Sắp hết giờ", "blocked_app": "Ứng dụng bị chặn",
@@ -300,30 +498,31 @@ def run_tray() -> int:
         except Exception:
             pass
         if kind in ("warning", "blocked_app", "locked"):
-            messagebox.showwarning(titles.get(kind, "OpenGuard Kids"), note.get("text", ""))
+            show_message(titles.get(kind, "OpenGuard Kids"), note.get("text", ""),
+                         key=kind)
 
     def poll():
+        # Mainloop chỉ còn việc nhẹ: thực thi thao tác từ menu khay.
+        # Nhịp session_pulse + nhận thông báo đã chuyển sang luồng
+        # Heartbeat riêng (CHẶN C1) — poll không bao giờ được chặn lâu.
         while True:
             try:
                 action = actions.get_nowait()
             except queue.Empty:
                 break
-            action()
-        if idle_seconds is not None and is_locked is not None:
             try:
-                core.session_pulse(idle_seconds(), is_locked())
+                action()
             except Exception:
-                pass
-        try:
-            for note in core.notifications():
-                show_note(note)
-        except Exception:
-            pass
-        root.after(3000, poll)
+                # Một thao tác lỗi (mở cửa sổ, gọi IPC...) không được giết
+                # vòng poll: mất poll là mất cửa sổ cảnh báo + menu khay
+                # cho cả phiên (gợi ý G-a, review 5).
+                traceback.print_exc()
+        root.after(500, poll)
 
     menu = pystray.Menu(
         pystray.MenuItem("Thời gian còn lại", lambda: actions.put(show_status), default=True),
         pystray.MenuItem("Hôm nay em đã dùng gì", lambda: actions.put(show_today)),
+        pystray.MenuItem("Tuần này em đã dùng gì", lambda: actions.put(show_week)),
         pystray.MenuItem("Xin thêm giờ", lambda: actions.put(ask_extra)),
         pystray.MenuItem("Báo chặn nhầm", lambda: actions.put(report_block)),
         pystray.MenuItem("Nhật ký thay đổi luật", lambda: actions.put(show_audit)),
@@ -332,16 +531,40 @@ def run_tray() -> int:
                         "OpenGuard Kids — Người Bạn Đồng Hành", menu)
     try:
         threading.Thread(target=icon.run, daemon=True, name="OGK-TrayIcon").start()
-        time.sleep(0.5)
-        if not icon._thread.is_alive() if hasattr(icon, "_thread") else False:
+        if not _wait_for_icon(icon, timeout=10.0):
             raise RuntimeError("icon thread died")
     except Exception as exc:
         core.tray_ready(False)
         print(f"Không hiển thị được biểu tượng khay: {exc} — đã báo service.", file=sys.stderr)
         return 1
     core.tray_ready(True)
-    root.after(1000, poll)
+
+    def _pulse():
+        if idle_seconds is not None and is_locked is not None:
+            core.session_pulse(idle_seconds(), is_locked())
+        else:
+            # Không đo được cảm biến phiên (môi trường lạ): vẫn gửi pulse
+            # rỗng để giữ nhịp; service tự lùi về cách dò cục bộ.
+            core.session_pulse(None, None)
+
+    stop_event = threading.Event()
+    heartbeat = Heartbeat(
+        pulse_fn=_pulse,
+        fetch_fn=core.notifications,
+        lock_fn=_lock_workstation,
+        # Chỉ đẩy vào hàng đợi thao tác của luồng UI (queue.Queue sẵn có,
+        # poll() xả mỗi 500ms): luồng nhịp TUYỆT ĐỐI không gọi Tk trực
+        # tiếp — root.after từ luồng khác có thể chờ luồng chính (N1).
+        display_fn=lambda note: actions.put(lambda n=note: show_note(n)),
+        alive_fn=lambda: _icon_alive(icon))
+    threading.Thread(target=heartbeat.run, args=(stop_event,), daemon=True,
+                     name="OGK-TrayHeartbeat").start()
+    root.after(500, poll)
     root.mainloop()
+    stop_event.set()
+    # Không còn "lời chào" tray_bye (lỗ NT1: ai có ipc_token cũng giả được).
+    # Agent tự biết phiên của trẻ qua trạng thái WTS: đăng xuất -> không
+    # fatal, chờ phiên kế tiếp; tray biến mất GIỮA phiên -> watchdog dừng.
     try:
         icon.stop()
     except Exception:
